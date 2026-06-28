@@ -91,9 +91,11 @@ function WoundOverrideControl({
       />
     </div>
   );
-  // Build a self-contained printable HTML doc and hand it to the browser's
-  // print dialog (Save as PDF). Avoids a PDF dependency.
-  function downloadPdf(row: EligibilityResult) {
+}
+
+// Build a self-contained printable HTML doc and hand it to the browser's
+// print dialog (Save as PDF). Avoids a PDF dependency.
+function downloadPdf(row: EligibilityResult) {
     const esc = (s: unknown) =>
       String(s ?? "—").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
 
