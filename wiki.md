@@ -34,8 +34,8 @@ Built by **3 developers** against a shared contract (`/lib/types.ts`) + mocks.
 | `lib/db/client.ts` ✅ | Person 1 | postgres-js + drizzle connection (pooled, reused) |
 | `lib/ingest/client.ts` ✅ | Person 1 | PCC API client: 429 `Retry-After` + backoff retry; pure helpers exported |
 | `lib/ingest/sync.ts` ✅ | Person 1 | id↔patient_id resolution, chunked idempotent upserts, resumable `syncSlice` |
-| `lib/eligibility/engine.ts` ✅ | Person 1 | Deterministic routing + reason + danger rules (pure, testable) |
-| `lib/eligibility/compute.ts` ✅ | Person 1 | DB rows → `EligibilityResult[]`; conflict detect; PHI masking enforced here |
+| `lib/eligibility/engine.ts` ✅ | Person 1 | Deterministic routing + reason + danger rules (pure, testable); incl. healed/resolved regex check |
+| `lib/eligibility/compute.ts` ✅ | Person 1 | DB rows → `EligibilityResult[]`; conflict detect; PHI masking enforced here; picks `latestWoundText` (most recently dated note/assessment) |
 | `lib/extract/index.ts` ✅ | Person 2 | Public surface: `extractWound` (sync), `extractWoundAsync` (LLM fallback), `deidentify`/`reidentify` |
 | `lib/extract/deid.ts` ✅ | Person 2 | PHI de-identification: tokenize name/DOB/id/clinician/dates ↔ restore (round-trip) |
 | `lib/extract/parse.ts` ✅ | Person 2 | Deterministic parser: structured/narrative/SPN/prose, multi-wound primary (largest area), evidence |
@@ -50,7 +50,7 @@ Built by **3 developers** against a shared contract (`/lib/types.ts`) + mocks.
 | `components/decision.ts` ✅ | Person 3 | Shared decision colors/labels + dims helper |
 | `tailwind.config.ts`, `postcss.config.mjs`, `app/globals.css` ✅ | Person 3 | Tailwind setup |
 | `scripts/ingest.ts` ✅ | Person 1 | CLI backfill (`npm run ingest`) |
-| `scripts/test-logic.ts` ✅ | Person 1 | Pure routing + retry + extraction tests (no DB/net), 15 cases |
+| `scripts/test-logic.ts` ✅ | Person 1 | Pure routing + retry + extraction tests (no DB/net), 22 cases incl. healed/resolved |
 | `scripts/test-api.ts` ✅ | Person 1 | Live PCC retry smoke test (network, no DB) |
 | `scripts/test-llm.ts` ✅ | Person 2 | LLM extraction + de-id smoke test (`npm run test:llm`, gated on ANTHROPIC_API_KEY) |
 | `scripts/verify.ts` ✅ | Person 1 | DB→decisions end-to-end check + PHI leak guard (`npm run verify`) |
@@ -66,6 +66,7 @@ Built by **3 developers** against a shared contract (`/lib/types.ts`) + mocks.
 | Shared types | ARCHITECTURE.md:77–108 | Canonical interface shapes for `/lib/types.ts` |
 | ID mapping rule | API.md:64–83 | `patient_id` (string) vs integer `id` per endpoint |
 | Auto-accept gate | abi_frameworks_must_haves_and_dangers.md:45–55 | All conditions for safe auto_accept |
+| Healed/resolved → reject | threshold.md "Reject Threshold" + `lib/eligibility/engine.ts` `HEALED_RE`/`ACTIVE_RE` | Latest doc says healed → reject; healed+active conflict in same doc → flag, never reject |
 | Sync prompt | plan.md "CODE-SYNC PROMPT" | Paste to merge the 3 branches |
 
 ## Glossary

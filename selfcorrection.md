@@ -24,11 +24,17 @@
 |---|------|-----------|------------|
 | 1 | 2026-06-28 | Re-split the 4-person architecture into a 3-person plan. | plan.md / team structure |
 | 2 | 2026-06-28 | Append a sync prompt + deploy/run steps to the plan. | plan.md format |
+| 3 | 2026-06-28 | Don't add new files for a small logic fix during parallel group work — edit the existing file directly to minimize merge-conflict surface. | engine.ts / general editing style during active parallel branches |
 
 ## Real-Data Facts (verified by ingesting the live API — trust over API.md)
 - Active Medicare Part B = `coverage.payer_code === "MCB"` AND `effective_to === null`. `payer_type` is "Medicare" for both Part A and B — useless as discriminator.
 - Assessment `raw_json` shape is nested `{sections:[{questions:[{question,answer}]}]}` or a single free-text "Wound narrative" answer. NOT the flat `{wound_type, length_cm,...}` from the docs.
 - Notes are prose ("Measures 5.9 x 4.5cm, depth 1.8cm") or Envive narratives, rarely clean SPN labels.
+
+## Threshold Logic Decisions (engine.ts, vs threshold.md)
+- threshold.md requires "latest documentation says wound healed/resolved → `reject`" as a hard rule + dangerous-edge-case test. The original engine.ts had zero handling of this — fixed by adding `HEALED_RE`/`ACTIVE_RE` checks in `decide()`, fed by `latestWoundText` (most recently dated note/assessment) computed in `compute.ts`.
+- Conflicting healed+active language in the *same* latest doc → `flag_for_review`, never `reject` — matches the team rule "extra flags are acceptable, wrong auto_accept/reject are not."
+- This check runs right after the active-MCB confirmation, before the missing-wound branch, so a stale-but-complete wound record from an earlier date can't out-rank a newer "healed" note.
 
 ## Do-Not-Repeat List
 - Don't plan around 4 people. It's 3.

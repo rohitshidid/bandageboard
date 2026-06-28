@@ -31,6 +31,18 @@ function rowToPatient(r: typeof schema.patients.$inferSelect): Patient {
   };
 }
 
+/** Text of the most recently dated note/assessment (by effective/assessment date). */
+function latestWoundText(notes: Note[], assessments: Assessment[]): string | null {
+  const dateOf = (d: string | null) => (d ? Date.parse(d) : -Infinity);
+  const docs = [
+    ...notes.map((n) => ({ time: dateOf(n.effective_date), text: n.note_text })),
+    ...assessments.map((a) => ({ time: dateOf(a.assessment_date), text: a.raw_json })),
+  ].filter((d) => d.text);
+  if (docs.length === 0) return null;
+  docs.sort((a, b) => b.time - a.time);
+  return docs[0].text;
+}
+
 function woundsDisagree(a: ExtractedWound | null, b: ExtractedWound | null): boolean {
   if (!a || !b) return false;
   if (a.wound_type && b.wound_type && a.wound_type !== b.wound_type) return true;
@@ -134,7 +146,15 @@ export async function computeEligibility(
     const conflict = woundsDisagree(fromAsmt, fromNote);
     const hadClinicalSource = patientNotes.length > 0 || patientAsmts.length > 0;
 
-    const result = buildResult({ patient, coverage, diagnoses, wound, hadClinicalSource, conflict });
+    const result = buildResult({
+      patient,
+      coverage,
+      diagnoses,
+      wound,
+      hadClinicalSource,
+      conflict,
+      latestWoundText: latestWoundText(patientNotes, patientAsmts),
+    });
     if (filters.decision && result.decision !== filters.decision) continue;
     results.push(result);
   }

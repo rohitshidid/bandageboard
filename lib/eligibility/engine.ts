@@ -16,6 +16,13 @@ import type {
 
 const CONFIDENCE_MIN = 0.75; // below this -> review
 
+// threshold.md: "Latest documentation clearly says the wound is healed or
+// resolved" -> reject. Conflicting healed+active language -> flag, never reject.
+const HEALED_RE =
+  /\b(wound (?:is |has |was )?(?:fully )?heal(?:ed)?|wound resolved|resolution of (?:the )?wound|wound (?:site )?closed|no longer (?:has an? )?open wound)\b/i;
+const ACTIVE_RE =
+  /\b(open wound|wound (?:remains|is still) (?:open|present|active)|unhealed|not heal(?:ed|ing))\b/i;
+
 export function isActiveMcb(coverage: Coverage[]): boolean {
   // Real API: payer_code distinguishes MCB/MCA/MCD/HMO; payer_type is just
   // "Medicare" for both Part A and B. So key off the code. (Docs showed
@@ -60,6 +67,8 @@ export interface EligibilityInput {
   hadClinicalSource: boolean;
   /** True if note and assessment extractions disagree. */
   conflict?: boolean;
+  /** Free text of the most recent note/assessment, used to catch healed/resolved language. */
+  latestWoundText?: string | null;
 }
 
 export function maskName(p: Patient): string {
@@ -85,7 +94,25 @@ export function decide(input: EligibilityInput): { decision: Decision; reason: s
     };
   }
 
-  // 2. Active MCB confirmed. Is there a wound at all?
+  // 2. Active MCB confirmed. Does the latest documentation say it healed?
+  if (input.latestWoundText) {
+    const healed = HEALED_RE.test(input.latestWoundText);
+    const active = ACTIVE_RE.test(input.latestWoundText);
+    if (healed && active) {
+      return {
+        decision: "flag_for_review",
+        reason: "Latest documentation has conflicting healed/active language for the wound. Reconcile before billing.",
+      };
+    }
+    if (healed) {
+      return {
+        decision: "reject",
+        reason: "Latest documentation says the wound is healed/resolved. No active wound to bill.",
+      };
+    }
+  }
+
+  // 3. Is there a wound at all?
   const activeWoundDx = diagnoses.some(isActiveWoundDiagnosis);
   if (!wound) {
     if (!hadClinicalSource && !activeWoundDx) {
@@ -101,7 +128,7 @@ export function decide(input: EligibilityInput): { decision: Decision; reason: s
     };
   }
 
-  // 3. Wound extracted. Conflicts and gaps -> review.
+  // 4. Wound extracted. Conflicts and gaps -> review.
   if (conflict) {
     return {
       decision: "flag_for_review",
@@ -122,7 +149,7 @@ export function decide(input: EligibilityInput): { decision: Decision; reason: s
     };
   }
 
-  // 4. Everything documented, confident, unconflicted -> safe to bill.
+  // 5. Everything documented, confident, unconflicted -> safe to bill.
   const stagePart = wound.stage ? `, stage ${wound.stage}` : "";
   return {
     decision: "auto_accept",

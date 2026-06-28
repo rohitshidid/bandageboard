@@ -7,7 +7,7 @@
 - Triggering task: Implement + VERIFY Person 3 (biller dashboard) — all 3 workstreams now done.
 
 ## Structural Integrity — ALL 3 WORKSTREAMS VERIFIED GREEN ✅
-- `npm run test:logic` → 19/19 pass (retry + routing + de-id + multi-wound + evidence).
+- `npm run test:logic` → 22/22 pass (retry + routing + de-id + multi-wound + evidence + healed/resolved).
 - `npm run test:llm` → SKIPs cleanly without ANTHROPIC_API_KEY.
 - `EXTRACT_USE_LLM=true npm run verify` → async LLM path works; falls back to deterministic (4/6/7, PHI-safe).
 - `npm run build` → compiles + typechecks clean. Routes: / (dynamic), /api/eligibility, /api/sync.
@@ -27,11 +27,13 @@
 - `README.md` / `API.md`: source docs, unchanged.
 
 ## Open Risks / Warnings
+- Healed/resolved detection (`engine.ts` `HEALED_RE`/`ACTIVE_RE`) is a deterministic regex pass over the single most-recently-dated note/assessment text, not an LLM check — phrasing outside the regex won't be caught (stays `flag`/`auto_accept` as before, never a silent miss toward `reject`, so safe direction but may under-catch). Revisit if Person 2's LLM path should also classify status.
 - LLM extraction (`lib/extract/llm.ts`) is wired but UNRUN live — no ANTHROPIC_API_KEY set. Default off (`EXTRACT_USE_LLM` unset) → deterministic path. To enable: set key + flag.
 - Per-request LLM (EXTRACT_USE_LLM=true on `/api/eligibility`) would call the model per patient per request — fine for demo at 17 patients, but a batch/persisted enrichment is the right pattern at 300+. Noted for later.
 - Only 17 patients ingested (smoke). Run full backfill before demo (see plan.md Deploy & Run).
 - Eligibility computed on-the-fly in `compute.ts` (no persisted `eligibility` table) — fine for 300.
 - Design call: confirmed non-MCB → `reject`; missing coverage entirely → `flag` (missing≠negative).
+- Design call: latest note/assessment says wound healed/resolved → `reject`; healed+active language conflicting in the same latest doc → `flag_for_review` (never reject on ambiguity, per threshold.md safety rule).
 - Critical path: Person 1 (done+verified) + Person 2 (extraction) gate the live demo.
 
 ## REAL-DATA GOTCHAS (API ≠ API.md docs — confirmed by ingest)
@@ -50,3 +52,4 @@
 | 2026-06-28 | Implement Person 1 backend | 20 new files (lib/*, app/api/*, scripts/*, config) | created |
 | 2026-06-28 | Implement Person 2 extraction | lib/extract/{deid,parse,llm,index}.ts, scripts/test-llm.ts; +@anthropic-ai/sdk,zod | created |
 | 2026-06-28 | Implement Person 3 dashboard | app/{page,layout,globals.css}, components/*, tailwind/postcss config; +tailwind | created |
+| 2026-06-28 | Healed/resolved wound → reject (threshold.md gap fix) | lib/eligibility/engine.ts, lib/eligibility/compute.ts, scripts/test-logic.ts | updated, 22/22 green |

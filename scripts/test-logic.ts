@@ -173,5 +173,28 @@ test("evidence snippet present on single wound", () => {
   assert.ok(w?.evidence && w.evidence.length > 0);
 });
 
+console.log("\n— healed/resolved wound (threshold.md) —");
+test("REJECT: latest documentation says wound healed", () => {
+  const r = decide({
+    patient, coverage: mcb, diagnoses: [], wound: fullWound, hadClinicalSource: true,
+    latestWoundText: "Sacral wound has healed; site closed, no further treatment needed.",
+  });
+  assert.equal(r.decision, "reject");
+});
+test("FLAG: latest documentation has conflicting healed/active language", () => {
+  const r = decide({
+    patient, coverage: mcb, diagnoses: [], wound: fullWound, hadClinicalSource: true,
+    latestWoundText: "Sacral wound resolved per prior note, but wound remains open on exam today.",
+  });
+  assert.equal(r.decision, "flag_for_review");
+});
+test("AUTO_ACCEPT unaffected when latest text has no healed language", () => {
+  const r = decide({
+    patient, coverage: mcb, diagnoses: [], wound: fullWound, hadClinicalSource: true,
+    latestWoundText: "Sacral pressure ulcer remains open, dressing changed.",
+  });
+  assert.equal(r.decision, "auto_accept");
+});
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);
