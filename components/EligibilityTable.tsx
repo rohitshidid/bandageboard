@@ -1,9 +1,12 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import type { EligibilityResult } from "@/lib/types";
 import { DECISION_META, dims, woundLabel } from "./decision";
 
 export type SortKey = "patient" | "facility" | "decision";
+
+const PAGE_SIZE = 20;
 
 function Header({
   label,
@@ -41,6 +44,13 @@ export default function EligibilityTable({
   onSort: (k: SortKey) => void;
   onSelect: (r: EligibilityResult) => void;
 }) {
+  const [page, setPage] = useState(1);
+
+  // Reset to page 1 whenever filters/sort changes the row set.
+  useEffect(() => {
+    setPage(1);
+  }, [rows]);
+
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center text-slate-400">
@@ -49,70 +59,133 @@ export default function EligibilityTable({
     );
   }
 
-  // Cap visible rows (~30) and scroll the rest inside the box; header stays pinned.
-  const ROW_PX = 41;
-  const MAX_ROWS = 25;
+  const totalPages = Math.ceil(rows.length / PAGE_SIZE);
+  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   return (
-    <div
-      className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm"
-      style={{ maxHeight: ROW_PX * (MAX_ROWS + 1) }}
-    >
-      <table className="min-w-full divide-y divide-slate-200">
-        <thead className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgb(226_232_240)]">
-          <tr>
-            <Header label="Patient" k="patient" sort={sort} onSort={onSort} />
-            <Header label="Facility" k="facility" sort={sort} onSort={onSort} />
-            <Header label="MCB" sort={sort} onSort={onSort} />
-            <Header label="Wound" sort={sort} onSort={onSort} />
-            <Header label="L×W×D" sort={sort} onSort={onSort} />
-            <Header label="Decision" k="decision" sort={sort} onSort={onSort} />
-            <Header label="Reason" sort={sort} onSort={onSort} className="hidden lg:table-cell" />
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {rows.map((r) => {
-            const meta = DECISION_META[r.decision];
-            return (
-              <tr
-                key={r.patient_id}
-                onClick={() => onSelect(r)}
-                className={`cursor-pointer bg-white hover:bg-slate-50 ${meta.row}`}
-              >
-                <td className="px-3 py-2.5 text-sm font-medium text-slate-800">
-                  {r.display_name}
-                  {r.multiple_wounds && (
-                    <span className="ml-2 inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
-                      {r.wounds.length} wounds
+    <div className="space-y-3">
+      <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <table className="min-w-full divide-y divide-slate-200">
+          <thead className="bg-slate-50">
+            <tr>
+              <Header label="Patient" k="patient" sort={sort} onSort={onSort} />
+              <Header label="Facility" k="facility" sort={sort} onSort={onSort} />
+              <Header label="MCB" sort={sort} onSort={onSort} />
+              <Header label="Wound" sort={sort} onSort={onSort} />
+              <Header label="L×W×D" sort={sort} onSort={onSort} />
+              <Header label="Decision" k="decision" sort={sort} onSort={onSort} />
+              <Header label="Reason" sort={sort} onSort={onSort} className="hidden lg:table-cell" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {pageRows.map((r) => {
+              const meta = DECISION_META[r.decision];
+              return (
+                <tr
+                  key={r.patient_id}
+                  onClick={() => onSelect(r)}
+                  className={`cursor-pointer bg-white hover:bg-slate-50 ${meta.row}`}
+                >
+                  <td className="px-3 py-2.5 text-sm font-medium text-slate-800">
+                    {r.display_name}
+                    {r.multiple_wounds && (
+                      <span className="ml-2 inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+                        {r.wounds.length} wounds
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5 text-sm text-slate-600">{r.facility_id}</td>
+                  <td className="px-3 py-2.5 text-sm">
+                    <span className={r.has_active_mcb ? "text-green-600" : "text-slate-400"}>
+                      {r.has_active_mcb ? "Yes" : "No"}
                     </span>
-                  )}
-                </td>
-                <td className="px-3 py-2.5 text-sm text-slate-600">{r.facility_id}</td>
-                <td className="px-3 py-2.5 text-sm">
-                  <span className={r.has_active_mcb ? "text-green-600" : "text-slate-400"}>
-                    {r.has_active_mcb ? "Yes" : "No"}
-                  </span>
-                </td>
-                <td className="px-3 py-2.5 text-sm capitalize text-slate-700">{woundLabel(r.wound)}</td>
-                <td className="px-3 py-2.5 text-sm tabular-nums text-slate-600">{dims(r.wound)}</td>
-                <td className="px-3 py-2.5">
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.badge}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
-                    {meta.label}
-                  </span>
-                  {r.override && (
-                    <span className="ml-1.5 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                      overridden
+                  </td>
+                  <td className="px-3 py-2.5 text-sm capitalize text-slate-700">{woundLabel(r.wound)}</td>
+                  <td className="px-3 py-2.5 text-sm tabular-nums text-slate-600">{dims(r.wound)}</td>
+                  <td className="px-3 py-2.5">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.badge}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+                      {meta.label}
                     </span>
-                  )}
-                </td>
-                <td className="hidden max-w-md truncate px-3 py-2.5 text-sm text-slate-500 lg:table-cell" title={r.reason}>
-                  {r.reason}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                    {r.override && (
+                      <span className="ml-1.5 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                        overridden
+                      </span>
+                    )}
+                  </td>
+                  <td className="hidden max-w-md truncate px-3 py-2.5 text-sm text-slate-500 lg:table-cell" title={r.reason}>
+                    {r.reason}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination controls */}
+      <div className="flex items-center justify-between px-1">
+        <span className="text-xs text-slate-500">
+          {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, rows.length)} of {rows.length} patients
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setPage(1)}
+            disabled={page === 1}
+            className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+          >
+            «
+          </button>
+          <button
+            onClick={() => setPage((p) => p - 1)}
+            disabled={page === 1}
+            className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+          >
+            ‹
+          </button>
+
+          {/* Page number pills */}
+          {Array.from({ length: totalPages }, (_, i) => i + 1)
+            .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+            .reduce<(number | "…")[]>((acc, p, idx, arr) => {
+              if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("…");
+              acc.push(p);
+              return acc;
+            }, [])
+            .map((p, i) =>
+              p === "…" ? (
+                <span key={`ellipsis-${i}`} className="px-1 text-xs text-slate-400">…</span>
+              ) : (
+                <button
+                  key={p}
+                  onClick={() => setPage(p as number)}
+                  className={`min-w-[28px] rounded px-2 py-1 text-xs font-medium ${
+                    page === p
+                      ? "bg-slate-800 text-white"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {p}
+                </button>
+              )
+            )}
+
+          <button
+            onClick={() => setPage((p) => p + 1)}
+            disabled={page === totalPages}
+            className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+          >
+            ›
+          </button>
+          <button
+            onClick={() => setPage(totalPages)}
+            disabled={page === totalPages}
+            className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+          >
+            »
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
