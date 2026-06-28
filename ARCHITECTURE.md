@@ -1,6 +1,9 @@
 # Wound-Care Billing Pipeline — Architecture & Task Split
 
-**Team:** 4 developers · **Deploy target:** Vercel · **Duration:** Hackathon session
+**Team:** 3 developers · **Deploy target:** Vercel · **Duration:** Hackathon session
+
+> **Source of truth:** [plan.md](./plan.md). This file mirrors it. If they ever
+> diverge, plan.md wins.
 
 ---
 
@@ -8,7 +11,7 @@
 
 An **internal, biller-facing** tool. The end user is a non-technical billing/revenue-cycle staffer who reviews a table of patients and decides which Medicare Part B wound-care claims to submit. Patients never see this.
 
-Output: one row per patient with extracted wound fields, an active-MCB flag, and a routing decision (`auto_accept` / `flag_for_review` / `reject`) plus a plain-English reason — shown in a dashboard.
+Output: one row per patient with extracted wound fields, an active-MCB flag, and a routing decision (`auto_accept` / `flag_for_review` / `reject`) plus a plain-English reason and evidence snippets — shown in a dashboard.
 
 **PHI is treated as if real**, even though the hackathon data is synthetic. This is a cross-cutting requirement, not one person's job (see §5).
 
@@ -19,10 +22,10 @@ Output: one row per patient with extracted wound fields, an active-MCB flag, and
 | Layer | Choice | Why |
 |---|---|---|
 | Framework | **Next.js 14 (App Router) + TypeScript** | First-class Vercel support; API routes + frontend in one repo |
-| Storage | **Vercel Postgres** (Neon) — or Supabase Postgres | Queryable, serverless, zero-config on Vercel |
-| ORM | **Drizzle** (or Prisma) | Type-safe schema = our shared contract |
+| Storage | **Vercel Postgres** (Neon) | Queryable, serverless, zero-config on Vercel |
+| ORM | **Drizzle** | Type-safe schema = our shared contract |
 | Ingestion trigger | **Vercel Cron** → serverless route | Scheduled + incremental sync via `since` |
-| LLM | **Vercel AI SDK** (Anthropic/OpenAI) | Only for hard-to-parse Envive narratives |
+| LLM | **Vercel AI SDK** (Anthropic) | Only for hard-to-parse Envive narratives |
 | UI | **Tailwind + shadcn/ui** | Fast, clean biller dashboard |
 | Auth (stub) | Assume authenticated/authorized biller | PHI access control placeholder |
 
@@ -36,43 +39,47 @@ Output: one row per patient with extracted wound fields, an active-MCB flag, and
                           PCC Mock API (rate-limited, 30% 429)
                                       │
               ┌───────────────────────┼───────────────────────┐
-              │              [1] INGESTION LAYER               │
+              │              [1] INGESTION LAYER               │  Person 1
               │  API client w/ retry+backoff · id↔patient_id   │
               │  resolution · chunked upserts · `since` sync   │
               └───────────────────────┬───────────────────────┘
                                       ▼
                           ┌───────────────────────┐
                           │   Vercel Postgres      │  ← schema = shared contract
-                          │  patients, diagnoses,  │
+                          │  patients, diagnoses,  │     (Person 1 owns schema)
                           │  coverage, notes,      │
-                          │  assessments           │
+                          │  assessments, eligibility
                           └───────────┬───────────┘
                                       ▼
               ┌───────────────────────┴───────────────────────┐
-              │           [2] EXTRACTION + DE-ID               │
+              │           [2] EXTRACTION + DE-ID               │  Person 2
               │  de-identify → parse (regex) / LLM (Envive) →  │
               │  normalized ExtractedWound + confidence        │
               └───────────────────────┬───────────────────────┘
                                       ▼
               ┌───────────────────────┴───────────────────────┐
-              │        [3] ELIGIBILITY ENGINE + API            │
+              │        [3] ELIGIBILITY ENGINE + API            │  Person 1
               │  active MCB? · active wound? · measurements    │
               │  complete? → routing + reason · Next API routes│
               │  PHI masking enforced at API boundary          │
               └───────────────────────┬───────────────────────┘
                                       ▼
               ┌───────────────────────┴───────────────────────┐
-              │           [4] BILLER DASHBOARD                 │
+              │           [4] BILLER DASHBOARD                 │  Person 3
               │  color-coded table · filters · detail drawer · │
               │  masked identifiers + reveal · summary stats   │
               └────────────────────────────────────────────────┘
 ```
 
+**Ownership maps 4 architectural layers onto 3 people:** Person 1 owns the whole
+backend server (ingestion + DB + eligibility + API), Person 2 owns extraction,
+Person 3 owns the dashboard + deploy.
+
 ---
 
-## 4. The shared contract (BUILD THIS FIRST, together — ~30 min)
+## 4. The shared contract (BUILD THIS FIRST, together — Phase 0, ~30 min)
 
-Before splitting, the whole team agrees on the DB schema + TypeScript types. This is the seam that lets all 4 work in parallel against mocks. Define these interfaces in `/lib/types.ts`:
+Before splitting, the whole team agrees on the DB schema + TypeScript types. This is the seam that lets all 3 work in parallel against mocks. Define these interfaces in `/lib/types.ts`:
 
 ```ts
 // Raw entities (mirror the API)
@@ -107,62 +114,73 @@ EligibilityResult {
 }
 ```
 
-Also commit a `/lib/mocks.ts` with 5–10 fake `EligibilityResult` rows so **Person 3 and 4 can start immediately** without waiting on real data.
+Also commit a `/lib/mocks.ts` with 5–10 fake `EligibilityResult` rows so **Person 3 can start immediately** without waiting on real data. Agree the HTTP contract: `GET /api/eligibility` returns `EligibilityResult[]`.
 
 ---
 
 ## 5. PHI rules (everyone follows these)
 
-- **De-identify before any LLM call** — strip name/DOB/patient IDs from note text, run extraction on clinical text only, re-attach identifiers locally. (Person 2 builds the module; Person 3 uses it for summaries.)
-- **Mask in the UI** — show last name + patient ID by default; reveal toggle for authorized use. (Person 4)
+- **De-identify before any LLM call** — strip name/DOB/patient IDs from note text, run extraction on clinical text only, re-attach identifiers locally. (Person 2 builds the module; Person 1 reuses it for summaries.)
+- **Mask in the UI** — show last name + patient ID by default; reveal toggle for authorized use. (Person 3)
 - **Minimize storage** — keep only fields needed for the decision; don't duplicate full notes downstream. (Person 1 & 2)
 - **No PHI in logs** — never log full note text, names, or DOB to console/error traces. (Everyone)
-- **API masks at the boundary** — `display_name_masked` is what leaves the server. (Person 3)
+- **API masks at the boundary** — `display_name_masked` is what leaves the server. (Person 1)
 
 ---
 
-## 6. The 4 parallel workstreams
+## 6. The 3 parallel workstreams
 
-### Person 1 — Ingestion & Data Layer  `/lib/ingest`, `/app/api/sync`
-Owns the DB schema (the contract). Deliverables:
+### Person 1 — Backend Data & Decision  `/lib/ingest`, `/lib/eligibility`, `/app/api/*`
+Owns the DB schema (the contract), ingestion, the routing engine, and the API boundary — the whole server. Deliverables:
+- DB schema (Drizzle): `patients, diagnoses, coverage, notes, assessments` + processed `eligibility` table. Raw JSON columns for audit.
 - API client: `Retry-After`-aware retry/backoff for 429; handle 422/500 cleanly.
-- Resolve `patient_id` (string) ↔ `id` (int); fetch all 5 entity types per patient.
+- Resolve `patient_id` (string) ↔ `id` (int); fetch all 5 entity types per patient across facilities 101/102/103.
 - Chunked, idempotent upserts into Postgres (resumable across cron runs).
 - Vercel Cron config; **bonus:** incremental `since` sync.
-- Provides: populated DB + a `getRawData()` accessor.
+- Eligibility engine: active **MCB** check (`payer_type="Medicare B"` AND `effective_to=null`); active-wound check (active diagnosis OR extracted wound).
+- Routing rules → `auto_accept` / `flag_for_review` / `reject` (see §7) + plain-English reason + evidence snippet. Conflict + missing-doc detection.
+- Next.js API: `GET /api/eligibility` (filters: facility / decision / payer); enforce PHI masking here.
+- Stub `extractWound()` with a trivial passthrough until Person 2 lands, so routing + API are testable solo.
+- Provides: populated DB + `/api/eligibility` serving `EligibilityResult[]`.
 
 ### Person 2 — Extraction & De-identification (PHI core)  `/lib/extract`
-The hardest accuracy work. Deliverables:
-- **De-id module** (also used by Person 3): tokenize identifiers ↔ restore.
-- Structured parser (regex) for SOAP / SPN / prose shorthand (`Meas 4.2x3.1x1.5cm`).
+The hardest accuracy work. Pure functions over note/assessment JSON — no DB needed early. Deliverables:
+- **De-id module** (also reused by Person 1): tokenize identifiers ↔ restore.
 - Assessment `raw_json` parser (cleanest source — prefer it when present).
-- **LLM extractor** for Envive narratives on de-identified text.
-- Multi-wound → pick primary; emit `confidence`.
+- Structured parser (regex) for SOAP / SPN / prose shorthand (`Meas 4.2x3.1x1.5cm`).
+- **LLM extractor** for Envive narratives on de-identified text only.
+- Multi-wound → pick primary (`is_primary`); emit `confidence` + `source`.
+- Evidence snippet: return the substring each field came from.
 - Provides: `extractWound(note|assessment) → ExtractedWound`.
 
-### Person 3 — Eligibility Engine & API  `/lib/eligibility`, `/app/api/*`
-The decision logic + server boundary. Deliverables:
-- Active **MCB** check (coverage with `effective_to = null`); active wound check (diagnoses + extraction).
-- Routing rules → `auto_accept` (all fields clear), `flag_for_review` (ambiguous/Envive/low confidence), `reject` (no reliable extraction) + reason generator.
-- **Bonus:** per-patient LLM summary narrative (de-identified).
-- Next.js API routes: `GET /api/eligibility` (+ filters by facility/decision/payer); enforce PHI masking here.
-- Provides: the `EligibilityResult[]` the UI renders.
-
-### Person 4 — Biller Dashboard  `/app`, `/components`
-The presentation + visual output (judged). Deliverables:
+### Person 3 — Biller Dashboard & Deploy  `/app`, `/components`, `vercel.json`
+The presentation + visual output (judged) + ships the deploy. Deliverables:
 - Table: color-coded by decision, sortable, filter by facility / decision / payer.
 - Summary cards: counts per decision, % auto-accepted, payer mix.
-- Patient detail drawer: wound fields, reason, masked identifiers + reveal toggle.
-- Empty/loading/error states; deploy + Vercel config.
-- Works against `/lib/mocks.ts` from minute one, swaps to live API when ready.
+- Patient detail drawer: wound fields, reason, evidence snippets, masked identifiers + reveal toggle.
+- Empty/loading/error states.
+- Works against `/lib/mocks.ts` from minute one; swaps to live `GET /api/eligibility` when ready.
+- Vercel project setup, env vars, production deploy.
 
 ---
 
-## 7. Integration plan
+## 7. Routing rules (deterministic — rules decide, LLM never decides)
+
+- `auto_accept` — ALL true: active MCB + active wound + wound type + stage (if pressure ulcer) + location + length + width + depth + drainage all documented + evidence exists + no unresolved conflicts.
+- `flag_for_review` — anything missing / ambiguous / Envive / low confidence / note-vs-assessment conflict. **Missing ≠ negative.**
+- `reject` — reliable extraction is not possible.
+
+**Top-3 dangers (hard rules):** (1) never mix `patient_id` string vs integer `id` → uncertain identity = `flag_for_review`; (2) no false auto-accepts; (3) missing/failed/conflicting data is never treated as a negative finding.
+
+---
+
+## 8. Integration plan
 
 1. **Phase 0 (together):** agree schema + types + commit mocks. ← unblocks everyone.
-2. **Phase 1 (parallel):** each person builds against the contract / mocks.
-3. **Phase 2 (integrate):** 1→2 (real data into extraction), 2→3 (extractions into routing), 3→4 (real API into UI). Swap mocks for live in order.
+2. **Phase 1 (parallel):** each person builds against the contract / mocks on their own branch.
+3. **Phase 2 (integrate):** Person 1 ingestion → DB; Person 2 `extractWound()` replaces Person 1's stub; eligibility runs on real extractions; Person 3 swaps mocks for live `/api/eligibility`. Use the **CODE-SYNC PROMPT in [plan.md](./plan.md)** to merge the 3 branches in dependency order.
 4. **Phase 3 (demo prep):** pick 3–4 example patients (one per decision type), rehearse the 10-min biller walkthrough.
 
-**Critical path:** Person 1 (data) → Person 2 (extraction) gate the live demo, so they integrate first. Persons 3 & 4 stay productive on mocks throughout, so a slow ingest never blocks the UI.
+**Critical path:** Person 1 (data) + Person 2 (extraction) gate the live demo, so they integrate first. Person 3 stays productive on mocks throughout, so a slow ingest never blocks the UI.
+
+**Deploy & run steps:** see [plan.md](./plan.md) — local (`npm install` → env → `drizzle-kit push` → ingest → `npm run dev`) and production Vercel (Postgres store + env vars + cron backfill).
