@@ -11,6 +11,7 @@ import type {
   Patient,
   ExtractedWound,
   EligibilityResult,
+  WoundClaim,
   Decision,
 } from "../types";
 
@@ -71,9 +72,20 @@ export interface EligibilityInput {
   latestWoundText?: string | null;
 }
 
-export function maskName(p: Patient): string {
-  const last = p.last_name ?? "Unknown";
-  return `${last} (${p.patient_id})`;
+export function displayName(p: Patient): string {
+  const name = [p.first_name, p.last_name].filter(Boolean).join(" ") || "Unknown";
+  return `${name} (${p.patient_id})`;
+}
+
+/** Claim status for a single wound (reuses the patient-level rules). */
+export function decideWound(
+  patient: Patient,
+  coverage: Coverage[],
+  diagnoses: Diagnosis[],
+  wound: ExtractedWound
+): WoundClaim {
+  const { decision, reason } = decide({ patient, coverage, diagnoses, wound, hadClinicalSource: true });
+  return { wound, decision, reason };
 }
 
 export function decide(input: EligibilityInput): { decision: Decision; reason: string } {
@@ -157,14 +169,21 @@ export function decide(input: EligibilityInput): { decision: Decision; reason: s
   };
 }
 
-export function buildResult(input: EligibilityInput): EligibilityResult {
+export interface BuildInput extends EligibilityInput {
+  wounds: WoundClaim[];
+  multiple_wounds: boolean;
+}
+
+export function buildResult(input: BuildInput): EligibilityResult {
   const { decision, reason } = decide(input);
   return {
     patient_id: input.patient.patient_id,
-    display_name_masked: maskName(input.patient),
+    display_name: displayName(input.patient),
     facility_id: input.patient.facility_id,
     has_active_mcb: isActiveMcb(input.coverage),
     wound: input.wound,
+    wounds: input.wounds,
+    multiple_wounds: input.multiple_wounds,
     decision,
     reason,
   };

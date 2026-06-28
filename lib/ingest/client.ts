@@ -14,7 +14,9 @@ import type {
 } from "../types";
 
 const BASE_URL = process.env.PCC_BASE_URL ?? "https://hackathon.prod.pulsefoundry.ai";
-const MAX_RETRIES = 6;
+// High retry count = "keep retrying until the API responds" (429/5xx) with
+// backoff, without spinning forever.
+const MAX_RETRIES = 12;
 
 export type RetryClass = "ok" | "retry" | "fatal";
 

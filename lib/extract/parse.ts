@@ -127,13 +127,13 @@ function evidence(text: string, maxLen = 120): string {
   return snip.length > maxLen ? snip.slice(0, maxLen) + "…" : snip;
 }
 
-function fromAssessment(a: Assessment): ExtractedWound | null {
-  if (!a.raw_json) return null;
+function fromAssessment(a: Assessment): ExtractedWound[] {
+  if (!a.raw_json) return [];
   let j: any;
   try {
     j = JSON.parse(a.raw_json);
   } catch {
-    return null;
+    return [];
   }
 
   // Flat docs/fixture shape.
@@ -147,8 +147,7 @@ function fromAssessment(a: Assessment): ExtractedWound | null {
       depth_cm: num(j.depth_cm),
       drainage_amount: normDrainage(String(j.drainage_amount ?? "")),
     };
-    if (empty(f)) return null;
-    return mk(a.patient_id, f, "assessment", 0.95, `assessment#${a.id} (flat)`, true);
+    return empty(f) ? [] : [mk(a.patient_id, f, "assessment", 0.95, `assessment#${a.id} (flat)`, true)];
   }
 
   // Nested sections shape.
@@ -161,7 +160,7 @@ function fromAssessment(a: Assessment): ExtractedWound | null {
     }
     const narrative = qa.get("wound narrative");
     if (narrative) {
-      return pickPrimary(a.patient_id, narrative, "assessment", 0.65, `assessment#${a.id} narrative`);
+      return parseAll(a.patient_id, narrative, "assessment", 0.65, `assessment#${a.id} narrative`);
     }
     const get = (k: string) => qa.get(k) ?? null;
     const f: Fields = {
@@ -173,43 +172,35 @@ function fromAssessment(a: Assessment): ExtractedWound | null {
       depth_cm: num(get("depth (cm)") ?? get("depth")),
       drainage_amount: normDrainage(get("drainage amount") ?? get("drainage")),
     };
-    if (empty(f)) return null;
-    return mk(a.patient_id, f, "assessment", 0.9, `assessment#${a.id} structured`, true);
+    return empty(f) ? [] : [mk(a.patient_id, f, "assessment", 0.9, `assessment#${a.id} structured`, true)];
   }
 
-  return null;
+  return [];
 }
 
-function fromNote(n: Note): ExtractedWound | null {
-  return pickPrimary(n.patient_id, n.note_text ?? "", "note_structured", 0.6, `note#${n.id}`);
+function fromNote(n: Note): ExtractedWound[] {
+  return parseAll(n.patient_id, n.note_text ?? "", "note_structured", 0.6, `note#${n.id}`);
 }
 
-/** Parse all wound segments and return the primary (largest area). */
-function pickPrimary(
+/** Parse ALL wound segments in a text, primary (largest area) first. */
+function parseAll(
   patient_id: number,
   text: string,
   source: ExtractedWound["source"],
   confidence: number,
   evidencePrefix: string
-): ExtractedWound | null {
+): ExtractedWound[] {
   const segs = splitWounds(text);
   const candidates = segs
     .map((seg) => ({ f: parseText(seg), seg }))
-    .filter(({ f }) => !empty(f));
-  if (candidates.length === 0) return null;
+    .filter(({ f }) => !empty(f))
+    .sort((a, b) => area(b.f) - area(a.f));
+  if (candidates.length === 0) return [];
 
-  candidates.sort((a, b) => area(b.f) - area(a.f));
-  const top = candidates[0];
-  // Multi-wound notes are inherently messier -> slightly lower confidence.
+  // Multi-wound text is messier -> slightly lower confidence.
   const conf = candidates.length > 1 ? Math.max(confidence - 0.05, 0.5) : confidence;
-  return mk(
-    patient_id,
-    top.f,
-    source,
-    conf,
-    `${evidencePrefix}: "${evidence(top.seg)}"`,
-    true,
-    candidates.length > 1
+  return candidates.map((c, i) =>
+    mk(patient_id, c.f, source, conf, `${evidencePrefix}: "${evidence(c.seg)}"`, i === 0)
   );
 }
 
@@ -219,22 +210,19 @@ function mk(
   source: ExtractedWound["source"],
   confidence: number,
   evidence: string,
-  is_primary: boolean,
-  multi = false
+  is_primary: boolean
 ): ExtractedWound {
-  return {
-    patient_id,
-    ...f,
-    source,
-    confidence,
-    is_primary,
-    evidence: multi ? `${evidence} [multi-wound; primary selected]` : evidence,
-  };
+  return { patient_id, ...f, source, confidence, is_primary, evidence };
 }
 
-/** Sync deterministic extraction from a single source. Null if unparseable. */
-export function extractWound(source: Source): ExtractedWound | null {
+/** All wounds described by a single source, primary first. */
+export function extractWounds(source: Source): ExtractedWound[] {
   return source.kind === "assessment"
     ? fromAssessment(source.data)
     : fromNote(source.data);
+}
+
+/** Sync deterministic extraction — the primary wound only. Null if none. */
+export function extractWound(source: Source): ExtractedWound | null {
+  return extractWounds(source)[0] ?? null;
 }

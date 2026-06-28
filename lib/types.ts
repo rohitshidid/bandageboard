@@ -72,12 +72,21 @@ export interface ExtractedWound {
   evidence?: string | null; // substring the fields came from
 }
 
+// One wound + its own claim status (a patient can have several).
+export interface WoundClaim {
+  wound: ExtractedWound;
+  decision: Decision;
+  reason: string;
+}
+
 export interface EligibilityResult {
   patient_id: string;
-  display_name_masked: string;
+  display_name: string; // full name (PHI no longer masked)
   facility_id: number;
   has_active_mcb: boolean;
-  wound: ExtractedWound | null;
-  decision: Decision;
+  wound: ExtractedWound | null; // primary (largest)
+  wounds: WoundClaim[]; // all wounds, each with its own claim status
+  multiple_wounds: boolean;
+  decision: Decision; // patient-level (from the primary wound)
   reason: string;
 }

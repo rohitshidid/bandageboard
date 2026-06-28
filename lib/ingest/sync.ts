@@ -205,3 +205,67 @@ export async function syncAll(opts: { limit?: number; since?: string } = {}) {
   }
   return results;
 }
+
+// ---- SYNC button pipeline: incremental, insert-or-update, status refresh ----
+
+export interface IncrementalResult {
+  inserted: number;
+  updated: number;
+  changedPatients: number;
+  lastSyncAt: string;
+  durationMs: number;
+}
+
+export async function getLastSync(): Promise<string | null> {
+  const m = await db.select().from(schema.syncMeta).where(sql`${schema.syncMeta.id} = 1`);
+  return m[0]?.lastSyncAt ? m[0].lastSyncAt.toISOString() : null;
+}
+
+/**
+ * Incremental sync for the SYNC button. Pulls only patients changed since the
+ * last sync (`last_modified_at >= since`), inserts new ones, updates changed
+ * columns on existing ones (per-table upserts), and records the sync time.
+ * Eligibility status is recomputed on read (/api/eligibility), so the UI just
+ * refetches afterward.
+ */
+export async function syncIncremental(): Promise<IncrementalResult> {
+  const t0 = Date.now();
+  const since = (await getLastSync()) ?? undefined;
+
+  // Snapshot existing patient ids to classify insert vs update.
+  const existing = new Set(
+    (await db.select({ id: schema.patients.id }).from(schema.patients)).map((r) => r.id)
+  );
+
+  let inserted = 0;
+  let updated = 0;
+  for (const f of FACILITIES) {
+    const patients = await getPatients(f, since);
+    for (const p of patients) {
+      if (existing.has(p.id)) updated++;
+      else {
+        inserted++;
+        existing.add(p.id);
+      }
+      await upsertPatient(p);
+      await syncOnePatient(p, since);
+    }
+  }
+
+  const now = new Date();
+  await db
+    .insert(schema.syncMeta)
+    .values({ id: 1, lastSyncAt: now, lastInserted: inserted, lastUpdated: updated })
+    .onConflictDoUpdate({
+      target: schema.syncMeta.id,
+      set: { lastSyncAt: now, lastInserted: inserted, lastUpdated: updated },
+    });
+
+  return {
+    inserted,
+    updated,
+    changedPatients: inserted + updated,
+    lastSyncAt: now.toISOString(),
+    durationMs: Date.now() - t0,
+  };
+}

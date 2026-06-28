@@ -15,7 +15,7 @@ import { extractWoundLLM } from "./llm";
 
 const CONFIDENCE_OK = 0.75;
 
-export { extractWound } from "./parse";
+export { extractWound, extractWounds } from "./parse";
 export type { Source } from "./parse";
 export { deidentify, reidentify } from "./deid";
 

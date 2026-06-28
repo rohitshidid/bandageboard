@@ -162,7 +162,6 @@ test("picks the larger wound as primary", () => {
   assert.ok(w);
   assert.equal(w!.length_cm, 5.9); // buttock (26.6cm²) beats heel (9.45cm²)
   assert.equal(w!.depth_cm, 1.8);
-  assert.match(w!.evidence ?? "", /multi-wound/);
 });
 test("evidence snippet present on single wound", () => {
   const n: Note = {

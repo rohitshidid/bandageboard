@@ -72,7 +72,14 @@ export default function EligibilityTable({
                 onClick={() => onSelect(r)}
                 className={`cursor-pointer bg-white hover:bg-slate-50 ${meta.row}`}
               >
-                <td className="px-3 py-2.5 text-sm font-medium text-slate-800">{r.display_name_masked}</td>
+                <td className="px-3 py-2.5 text-sm font-medium text-slate-800">
+                  {r.display_name}
+                  {r.multiple_wounds && (
+                    <span className="ml-2 inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+                      {r.wounds.length} wounds
+                    </span>
+                  )}
+                </td>
                 <td className="px-3 py-2.5 text-sm text-slate-600">{r.facility_id}</td>
                 <td className="px-3 py-2.5 text-sm">
                   <span className={r.has_active_mcb ? "text-green-600" : "text-slate-400"}>

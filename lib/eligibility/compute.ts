@@ -3,8 +3,8 @@
 // un-masked — only EligibilityResult fields are returned.
 
 import { db, schema } from "../db/client";
-import { extractWound, extractWoundAsync, type Source } from "../extract";
-import { buildResult } from "./engine";
+import { extractWound, extractWounds, extractWoundAsync, type Source } from "../extract";
+import { buildResult, decideWound } from "./engine";
 import type {
   Assessment,
   Coverage,
@@ -49,6 +49,32 @@ function woundsDisagree(a: ExtractedWound | null, b: ExtractedWound | null): boo
   const off = (x: number | null, y: number | null) =>
     x != null && y != null && Math.abs(x - y) > 0.5; // >0.5cm apart
   return off(a.length_cm, b.length_cm) || off(a.width_cm, b.width_cm) || off(a.depth_cm, b.depth_cm);
+}
+
+const woundArea = (w: ExtractedWound) => (w.length_cm ?? 0) * (w.width_cm ?? 0);
+
+const closeDim = (a: number | null, b: number | null) =>
+  a == null || b == null || Math.abs(a - b) <= 1.0; // within 1cm = "same"
+
+/** Two extractions describe the SAME physical wound. */
+function sameWound(a: ExtractedWound, b: ExtractedWound): boolean {
+  if (a.wound_type && b.wound_type && a.wound_type !== b.wound_type) return false;
+  return closeDim(a.length_cm, b.length_cm) && closeDim(a.width_cm, b.width_cm);
+}
+
+/**
+ * Collapse the same wound seen across a note + an assessment (different wording
+ * but same type and similar size) into one, keeping the highest-confidence copy.
+ * Genuinely distinct wounds (different type, or sizes >1cm apart) stay separate.
+ */
+function dedupeWounds(wounds: ExtractedWound[]): ExtractedWound[] {
+  const clusters: ExtractedWound[] = [];
+  for (const w of wounds) {
+    const hit = clusters.findIndex((c) => sameWound(c, w));
+    if (hit === -1) clusters.push(w);
+    else if (w.confidence > clusters[hit].confidence) clusters[hit] = w;
+  }
+  return clusters.sort((a, b) => woundArea(b) - woundArea(a));
 }
 
 export interface EligibilityFilters {
@@ -128,32 +154,48 @@ export async function computeEligibility(
       raw_json: a.rawJson,
     }));
 
-    // Prefer assessment (cleanest). Also extract a note to detect conflicts.
-    // EXTRACT_USE_LLM=true routes hard narratives through the LLM (de-identified);
-    // default off keeps the per-request path deterministic, fast, and free.
-    const useLLM = process.env.EXTRACT_USE_LLM === "true";
-    const pick = async (sources: Source[]) => {
-      for (const s of sources) {
-        const w = useLLM ? await extractWoundAsync(s) : extractWound(s);
-        if (w) return w;
-      }
-      return null;
-    };
-    const fromAsmt = await pick(patientAsmts.map((a) => ({ kind: "assessment", data: a })));
-    const fromNote = await pick(patientNotes.map((n) => ({ kind: "note", data: n })));
+    // Extract ALL wounds across every source, then dedupe (a wound may appear
+    // in both a note and an assessment). Primary = largest area.
+    const asmtSources: Source[] = patientAsmts.map((a) => ({ kind: "assessment", data: a }));
+    const noteSources: Source[] = patientNotes.map((n) => ({ kind: "note", data: n }));
+    const allWounds = dedupeWounds([
+      ...asmtSources.flatMap((s) => extractWounds(s)),
+      ...noteSources.flatMap((s) => extractWounds(s)),
+    ]);
 
-    const wound = fromAsmt ?? fromNote;
-    const conflict = woundsDisagree(fromAsmt, fromNote);
+    // Optional LLM upgrade of the primary for hard narratives (de-identified).
+    const useLLM = process.env.EXTRACT_USE_LLM === "true";
+    let primary = allWounds[0] ?? null;
+    if (useLLM && (!primary || primary.confidence < 0.75)) {
+      for (const s of [...asmtSources, ...noteSources]) {
+        const better = await extractWoundAsync(s);
+        if (better && better.source === "note_llm") {
+          primary = better;
+          if (!allWounds.length) allWounds.push(better);
+          else allWounds[0] = better;
+          break;
+        }
+      }
+    }
+
+    // Per-wound claim status.
+    const wounds = allWounds.map((w) => decideWound(patient, coverage, diagnoses, w));
+    const multiple_wounds = allWounds.length > 1;
+
+    // Conflict between the best note and best assessment wound -> primary flags.
+    const bestAsmt = asmtSources.flatMap((s) => extractWounds(s))[0] ?? null;
+    const bestNote = noteSources.flatMap((s) => extractWounds(s))[0] ?? null;
+    const conflict = woundsDisagree(bestAsmt, bestNote);
     const hadClinicalSource = patientNotes.length > 0 || patientAsmts.length > 0;
 
     const result = buildResult({
       patient,
       coverage,
       diagnoses,
-      wound,
       hadClinicalSource,
       conflict,
       latestWoundText: latestWoundText(patientNotes, patientAsmts),
+      wound: primary, wounds, multiple_wounds,
     });
     if (filters.decision && result.decision !== filters.decision) continue;
     results.push(result);

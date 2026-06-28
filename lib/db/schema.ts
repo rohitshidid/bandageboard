@@ -73,3 +73,11 @@ export const syncCursor = pgTable("sync_cursor", {
   total: integer("total"),
   updatedAt: timestamp("updated_at", { withTimezone: false }).defaultNow(),
 });
+
+// Singleton (id=1) tracking the last full incremental sync for the SYNC button.
+export const syncMeta = pgTable("sync_meta", {
+  id: integer("id").primaryKey(), // always 1 (singleton)
+  lastSyncAt: timestamp("last_sync_at", { withTimezone: false }),
+  lastInserted: integer("last_inserted").default(0),
+  lastUpdated: integer("last_updated").default(0),
+});
