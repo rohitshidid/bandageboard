@@ -19,7 +19,7 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-/** Per-wound manual override controls (manual_override_requirements.md §2). */
+/** Per-wound manual override controls. */
 function WoundOverrideControl({
   patientId,
   woundIndex,
@@ -93,8 +93,78 @@ function WoundOverrideControl({
   );
 }
 
-// Build a self-contained printable HTML doc and hand it to the browser's
-// print dialog (Save as PDF). Avoids a PDF dependency.
+function SummaryPanel({
+  patient,
+  claim,
+}: {
+  patient: EligibilityResult;
+  claim: WoundClaim | null;
+}) {
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function fetchSummary() {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    if (text) return;
+    setLoading(true);
+    setError(null);
+    setText("");
+    try {
+      const res = await fetch("/api/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patient, claim }),
+      });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        setText((prev) => prev + decoder.decode(value, { stream: true }));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load summary.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={fetchSummary}
+        className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 active:scale-95"
+      >
+        <span>💬</span>
+        <span>{open ? "Hide explanation" : "Why this decision?"}</span>
+        {loading && (
+          <span className="ml-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+        )}
+      </button>
+
+      {open && (
+        <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm leading-relaxed text-slate-700">
+          {error ? (
+            <span className="text-red-500">{error}</span>
+          ) : text ? (
+            text
+          ) : (
+            <span className="text-slate-400 italic">Generating explanation…</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Opens a print-ready page via a blob URL (avoids document.write XSS risk).
 function downloadPdf(row: EligibilityResult) {
   const esc = (s: unknown) =>
     String(s ?? "—").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
@@ -144,16 +214,15 @@ function downloadPdf(row: EligibilityResult) {
   ${wounds || '<p class="sub">No wound extracted.</p>'}
 </body></html>`;
 
-  const w = window.open("", "_blank", "width=800,height=900");
-  if (!w) return;
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  w.onload = () => {
-    w.print();
-  };
-  // Fallback if onload already fired
-  setTimeout(() => w.print(), 400);
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, "_blank", "width=800,height=900");
+  if (win) {
+    win.addEventListener("load", () => {
+      win.print();
+      URL.revokeObjectURL(url);
+    });
+  }
 }
 
 function WoundClaimCard({
@@ -161,12 +230,14 @@ function WoundClaimCard({
   woundIndex,
   claim,
   total,
+  patient,
   onOverride,
 }: {
   patientId: string;
   woundIndex: number;
   claim: WoundClaim;
   total: number;
+  patient: EligibilityResult;
   onOverride: (patientId: string, woundIndex: number, decision: Decision | null, note: string) => Promise<void>;
 }) {
   const meta = DECISION_META[claim.decision];
@@ -198,6 +269,7 @@ function WoundClaimCard({
       )}
       {w.evidence && <div className="mt-1 text-xs italic text-slate-400">{w.evidence}</div>}
       <WoundOverrideControl patientId={patientId} woundIndex={woundIndex} claim={claim} onOverride={onOverride} />
+      <SummaryPanel patient={patient} claim={claim} />
     </div>
   );
 }
@@ -260,6 +332,12 @@ export default function DetailDrawer({
             </div>
           )}
 
+          {row.wounds.length === 0 && (
+            <div className="mt-3">
+              <SummaryPanel patient={row} claim={null} />
+            </div>
+          )}
+
           <h3 className="mt-6 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
             {row.wounds.length > 1 ? `Wound claims (${row.wounds.length})` : "Wound claim"}
           </h3>
@@ -272,6 +350,7 @@ export default function DetailDrawer({
                   woundIndex={i}
                   claim={c}
                   total={row.wounds.length}
+                  patient={row}
                   onOverride={onOverride}
                 />
               ))}
