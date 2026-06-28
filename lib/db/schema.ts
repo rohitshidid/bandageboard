@@ -81,3 +81,12 @@ export const syncMeta = pgTable("sync_meta", {
   lastInserted: integer("last_inserted").default(0),
   lastUpdated: integer("last_updated").default(0),
 });
+
+// Biller manual override of a patient's decision (see manual_override_requirements.md).
+// Additive layer on top of the computed result — never mutated by ingestion/extraction.
+export const decisionOverrides = pgTable("decision_overrides", {
+  patientId: text("patient_id").primaryKey(), // PCC patient_id (string)
+  decision: text("decision").notNull(), // auto_accept | flag_for_review | reject
+  note: text("note"),
+  overriddenAt: timestamp("overridden_at", { withTimezone: false }).defaultNow(),
+});

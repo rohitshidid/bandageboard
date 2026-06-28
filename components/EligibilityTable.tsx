@@ -93,6 +93,11 @@ export default function EligibilityTable({
                     <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
                     {meta.label}
                   </span>
+                  {r.override && (
+                    <span className="ml-1.5 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                      overridden
+                    </span>
+                  )}
                 </td>
                 <td className="hidden max-w-md truncate px-3 py-2.5 text-sm text-slate-500 lg:table-cell" title={r.reason}>
                   {r.reason}

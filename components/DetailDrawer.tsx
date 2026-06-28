@@ -1,7 +1,93 @@
 "use client";
 
-import type { EligibilityResult, WoundClaim } from "@/lib/types";
+import { useState } from "react";
+import type { Decision, EligibilityResult, WoundClaim } from "@/lib/types";
 import { DECISION_META, dims, woundLabel } from "./decision";
+
+const OVERRIDE_OPTIONS: { decision: Decision; label: string }[] = [
+  { decision: "auto_accept", label: "Mark ready to bill" },
+  { decision: "flag_for_review", label: "Flag for review" },
+  { decision: "reject", label: "Reject" },
+];
+
+/** Manual override controls (manual_override_requirements.md). Patient-level only. */
+function OverrideControl({
+  row,
+  onOverride,
+}: {
+  row: EligibilityResult;
+  onOverride: (patientId: string, decision: Decision | null, note: string) => Promise<void>;
+}) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState<Decision | "clear" | null>(null);
+
+  const apply = async (decision: Decision) => {
+    setBusy(decision);
+    try {
+      await onOverride(row.patient_id, decision, note);
+      setNote("");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const clear = async () => {
+    setBusy("clear");
+    try {
+      await onOverride(row.patient_id, null, "");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+        Biller override
+      </div>
+      {row.override && (
+        <div className="mb-2 rounded bg-slate-50 p-2 text-xs text-slate-500">
+          System said <span className="font-medium">{DECISION_META[row.system_decision!].label}</span>
+          {row.system_reason ? ` — ${row.system_reason}` : ""}
+        </div>
+      )}
+      <div className="flex flex-wrap gap-1.5">
+        {OVERRIDE_OPTIONS.map((o) => {
+          const isCurrent = row.decision === o.decision;
+          return (
+            <button
+              key={o.decision}
+              disabled={isCurrent || busy !== null}
+              onClick={() => apply(o.decision)}
+              className={`rounded-md px-2.5 py-1.5 text-xs font-medium ${
+                isCurrent
+                  ? "cursor-default border border-slate-300 bg-slate-100 text-slate-400"
+                  : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              }`}
+            >
+              {busy === o.decision ? "Saving…" : o.label}
+            </button>
+          );
+        })}
+        {row.override && (
+          <button
+            disabled={busy !== null}
+            onClick={clear}
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {busy === "clear" ? "Clearing…" : "Revert to system decision"}
+          </button>
+        )}
+      </div>
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Optional note (why are you changing this?)"
+        className="mt-2 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+      />
+    </div>
+  );
+}
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -44,9 +130,11 @@ function WoundClaimCard({ claim, index, total }: { claim: WoundClaim; index: num
 export default function DetailDrawer({
   row,
   onClose,
+  onOverride,
 }: {
   row: EligibilityResult | null;
   onClose: () => void;
+  onOverride: (patientId: string, decision: Decision | null, note: string) => Promise<void>;
 }) {
   if (!row) return null;
   const meta = DECISION_META[row.decision];
@@ -80,6 +168,8 @@ export default function DetailDrawer({
           </div>
 
           <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{row.reason}</div>
+
+          <OverrideControl row={row} onOverride={onOverride} />
 
           <h3 className="mt-6 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
             {row.wounds.length > 1 ? `Wound claims (${row.wounds.length})` : "Wound claim"}

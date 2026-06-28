@@ -5,6 +5,7 @@
 import { db, schema } from "../db/client";
 import { extractWound, extractWounds, extractWoundAsync, type Source } from "../extract";
 import { buildResult, decideWound } from "./engine";
+import { getOverridesMap } from "./overrides";
 import type {
   Assessment,
   Coverage,
@@ -88,12 +89,13 @@ export async function computeEligibility(
   filters: EligibilityFilters = {}
 ): Promise<EligibilityResult[]> {
   // Pull everything once and group in memory (300 patients — cheap).
-  const [pats, diags, covs, nts, asmts] = await Promise.all([
+  const [pats, diags, covs, nts, asmts, overrides] = await Promise.all([
     db.select().from(schema.patients),
     db.select().from(schema.diagnoses),
     db.select().from(schema.coverage),
     db.select().from(schema.notes),
     db.select().from(schema.assessments),
+    getOverridesMap(),
   ]);
 
   const byStr = <T extends { patientId: string }>(rows: T[]) => {
@@ -197,6 +199,19 @@ export async function computeEligibility(
       latestWoundText: latestWoundText(patientNotes, patientAsmts),
       wound: primary, wounds, multiple_wounds,
     });
+
+    // Biller manual override (see manual_override_requirements.md): the override
+    // decision/note become the EFFECTIVE decision/reason; the system's own
+    // decision/reason are preserved alongside, never overwritten.
+    const override = overrides.get(patient.patient_id);
+    if (override) {
+      result.system_decision = result.decision;
+      result.system_reason = result.reason;
+      result.override = override;
+      result.decision = override.decision;
+      result.reason = override.note ?? `Overridden by biller to ${override.decision}.`;
+    }
+
     if (filters.decision && result.decision !== filters.decision) continue;
     results.push(result);
   }

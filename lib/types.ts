@@ -79,6 +79,15 @@ export interface WoundClaim {
   reason: string;
 }
 
+// Biller manual override (see manual_override_requirements.md). Additive only —
+// never replaces the system's own decision/reason, which stay in
+// system_decision/system_reason when an override is present.
+export interface DecisionOverride {
+  decision: Decision;
+  note: string | null;
+  overridden_at: string;
+}
+
 export interface EligibilityResult {
   patient_id: string;
   display_name: string; // full name (PHI no longer masked)
@@ -87,6 +96,11 @@ export interface EligibilityResult {
   wound: ExtractedWound | null; // primary (largest)
   wounds: WoundClaim[]; // all wounds, each with its own claim status
   multiple_wounds: boolean;
-  decision: Decision; // patient-level (from the primary wound)
-  reason: string;
+  decision: Decision; // EFFECTIVE decision: override.decision if present, else the system decision
+  reason: string; // EFFECTIVE reason: override.note if present, else the system reason
+  /** Present only when a biller has manually overridden the system decision. */
+  override?: DecisionOverride;
+  /** Present only alongside `override` — what the rules engine originally decided. */
+  system_decision?: Decision;
+  system_reason?: string;
 }

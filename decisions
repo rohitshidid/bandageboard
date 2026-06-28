@@ -1,0 +1,20 @@
+
+> bandageboard@0.1.0 verify
+> tsx scripts/verify.ts # end-to-end: DB rows - + PHI leak check
+
+SUMMARY: {"total":65,"auto_accept":23,"flag_for_review":13,"reject":29}
+multi-wound patients: 15
+
+Sample rows:
+  Eleanor Yates (FA-008)   mcb=N  reject           | venous_stasis_ulcer 6x1.7x0.1 drain=heavy
+  Vernon Jacobs (FA-020)   mcb=Y  auto_accept      | diabetic_foot_ulcer 3.2x2.3x0.6 drain=none
+  Hannah Reyes (FA-021)    mcb=Y  auto_accept      | arterial_ulcer 2.6x1.3x0.5 drain=moderate
+  Virginia Donnelly (FA-004) mcb=N  reject           | diabetic_foot_ulcer 4.3x1.8x0.3 drain=moderate
+  Roscoe Dunbar (FA-009)   mcb=Y  flag_for_review  | diabetic_foot_ulcer 5.3x4.5xnull drain=moderate [2 wounds]
+  Harriet Yuen (FA-014)    mcb=N  reject           | pressure_ulcer 1x1.9xnull drain=light
+  Oliver Watts (FA-010)    mcb=N  reject           | ? 3.7x2x1.6 drain=moderate [2 wounds]
+  Melvin Figueroa (FA-013) mcb=Y  flag_for_review  | abscess 1.4x1.2xnull drain=light
+  Robert Coleman (FA-012)  mcb=Y  auto_accept      | abscess 1.2x0.7x0.2 drain=moderate
+  Ima Stanton (FA-007)     mcb=N  reject           | diabetic_foot_ulcer 2.8x3.8x1.4 drain=none [2 wounds]
+
+shape check: PASS

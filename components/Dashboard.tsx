@@ -34,7 +34,13 @@ export default function Dashboard() {
   const [query, setQuery] = useState("");
 
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "decision", dir: 1 });
-  const [selected, setSelected] = useState<EligibilityResult | null>(null);
+  // Track by id, not the row object — keeps the drawer showing fresh data
+  // (e.g. right after an override) once `rows` is reloaded.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = useMemo(
+    () => rows.find((r) => r.patient_id === selectedId) ?? null,
+    [rows, selectedId]
+  );
 
   const loadData = useCallback(async () => {
     try {
@@ -52,6 +58,29 @@ export default function Dashboard() {
       setError(e instanceof Error ? e.message : "fetch failed");
     }
   }, []);
+
+  // Biller manual override (manual_override_requirements.md): POST/DELETE the
+  // override, then refresh from the API so decision/system_decision/reason are
+  // recomputed server-side consistently (avoids drifting local state). The
+  // drawer is keyed by patient_id (see `selected` above), so it picks up the
+  // refreshed row automatically once `rows` updates.
+  const handleOverride = useCallback(
+    async (patientId: string, newDecision: Decision | null, note: string) => {
+      if (newDecision) {
+        await fetch("/api/eligibility/override", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ patient_id: patientId, decision: newDecision, note }),
+        });
+      } else {
+        await fetch(`/api/eligibility/override?patient_id=${encodeURIComponent(patientId)}`, {
+          method: "DELETE",
+        });
+      }
+      await loadData();
+    },
+    [loadData]
+  );
 
   const loadLastSync = useCallback(async () => {
     try {
@@ -192,11 +221,11 @@ export default function Dashboard() {
             <span className="text-sm text-slate-400">{filtered.length} shown</span>
           </div>
 
-          <EligibilityTable rows={filtered} sort={sort} onSort={onSort} onSelect={setSelected} />
+          <EligibilityTable rows={filtered} sort={sort} onSort={onSort} onSelect={(r) => setSelectedId(r.patient_id)} />
         </>
       )}
 
-      <DetailDrawer row={selected} onClose={() => setSelected(null)} />
+      <DetailDrawer row={selected} onClose={() => setSelectedId(null)} onOverride={handleOverride} />
     </main>
   );
 }
