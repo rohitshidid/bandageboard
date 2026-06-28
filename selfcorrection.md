@@ -43,6 +43,10 @@
 - drizzle-kit 0.28 re-push emits bogus `DROP CONSTRAINT *_not_null` (NOT NULL isn't a named PG constraint) → 42P16 on PK columns. Harmless; schema applies on a fresh DB.
 - Don't put `.default()` on an integer primary-key column in Drizzle — triggers a failing ALTER on push.
 
+## SYNC pipeline (fixed)
+- Never load 300 patients in ONE synchronous HTTP request — minutes-long with 429 retries, the browser fetch dies and nothing commits. Use chunked + resumable batches the UI loops over with progress; process each batch with limited concurrency (~5).
+- `npm run build` and a running `next dev`/`next start` both write `.next` → concurrent run gives a misleading `PageNotFoundError: Cannot find module for page: /_document`. Kill servers + `rm -rf .next` before building.
+
 ## Do-Not-Repeat List
 - Don't plan around 4 people. It's 3.
 - Don't mix `patient_id` (string) and integer `id` across API endpoints (project hard rule).

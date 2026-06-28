@@ -1,15 +1,16 @@
 // /api/sync
-//   POST                     -> SYNC button: incremental insert/update + status refresh.
+//   POST ?reset=1            -> start a fresh full sync (cursor back to facility 0).
+//   POST                     -> process the NEXT batch; UI loops until allDone.
 //   GET                      -> { lastSyncAt } for the UI.
 //   GET ?facility=101&limit= -> Vercel Cron: one resumable slice.
-// The PCC client retries 429/5xx until the API responds (backoff). Optional
-// SYNC_SECRET protects the route.
+// Chunked + resumable so no single request has to load all 300 patients. The PCC
+// client retries 429/5xx until the API responds. Optional SYNC_SECRET protects it.
 
 import { NextRequest, NextResponse } from "next/server";
-import { syncSlice, syncIncremental, getLastSync } from "@/lib/ingest/sync";
+import { syncSlice, syncNextBatch, resetSyncCursors, getLastSync } from "@/lib/ingest/sync";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // local has no cap; Vercel caps lower per plan
+export const maxDuration = 300;
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.SYNC_SECRET;
@@ -20,7 +21,10 @@ function authorized(req: NextRequest): boolean {
 export async function POST(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
-    const result = await syncIncremental();
+    const sp = req.nextUrl.searchParams;
+    if (sp.get("reset") === "1") await resetSyncCursors();
+    const batch = sp.get("batch") ? Number(sp.get("batch")) : 20;
+    const result = await syncNextBatch(batch);
     return NextResponse.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
@@ -51,6 +55,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Default: report last sync time for the UI.
   return NextResponse.json({ lastSyncAt: await getLastSync() });
 }

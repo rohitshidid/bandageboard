@@ -163,9 +163,16 @@ export async function syncSlice(opts: {
   }
 
   const batch = all.slice(offset, offset + limit);
-  for (const p of batch) {
-    await upsertPatient(p);
-    await syncOnePatient(p, since);
+  // Process the batch with limited concurrency (the client retries 429s, so a
+  // few in flight is fine) to keep each invocation fast.
+  const CONCURRENCY = 5;
+  for (let i = 0; i < batch.length; i += CONCURRENCY) {
+    await Promise.all(
+      batch.slice(i, i + CONCURRENCY).map(async (p) => {
+        await upsertPatient(p);
+        await syncOnePatient(p, since);
+      })
+    );
   }
 
   const nextOffset = offset + batch.length;
@@ -219,6 +226,77 @@ export interface IncrementalResult {
 export async function getLastSync(): Promise<string | null> {
   const m = await db.select().from(schema.syncMeta).where(sql`${schema.syncMeta.id} = 1`);
   return m[0]?.lastSyncAt ? m[0].lastSyncAt.toISOString() : null;
+}
+
+async function patientCount(): Promise<number> {
+  const r = await db.select({ id: schema.patients.id }).from(schema.patients);
+  return r.length;
+}
+
+/** Start a fresh full sync from facility 0, offset 0 (idempotent upserts). */
+export async function resetSyncCursors(): Promise<void> {
+  await db.update(schema.syncCursor).set({ offset: 0 });
+  await db
+    .insert(schema.syncMeta)
+    .values({ id: 1, cursorFacility: 0 })
+    .onConflictDoUpdate({ target: schema.syncMeta.id, set: { cursorFacility: 0 } });
+}
+
+export interface BatchResult {
+  facilityId: number | null;
+  processedThisBatch: number;
+  facilityOffset: number;
+  facilityTotal: number;
+  cursorFacility: number;
+  allDone: boolean;
+  patientsInDb: number;
+  lastSyncAt: string | null;
+}
+
+/**
+ * Process ONE batch of the full sync, advancing a facility cursor across
+ * 101 -> 102 -> 103. The UI calls this repeatedly until `allDone`. Resumable:
+ * progress lives in sync_cursor (per-facility offset) + sync_meta.cursorFacility.
+ */
+export async function syncNextBatch(batchSize = 20): Promise<BatchResult> {
+  const meta = await db.select().from(schema.syncMeta).where(sql`${schema.syncMeta.id} = 1`);
+  const fi = meta[0]?.cursorFacility ?? 0;
+
+  if (fi >= FACILITIES.length) {
+    return {
+      facilityId: null, processedThisBatch: 0, facilityOffset: 0, facilityTotal: 0,
+      cursorFacility: fi, allDone: true, patientsInDb: await patientCount(),
+      lastSyncAt: meta[0]?.lastSyncAt ? meta[0].lastSyncAt.toISOString() : null,
+    };
+  }
+
+  const facilityId = FACILITIES[fi];
+  const slice = await syncSlice({ facilityId, limit: batchSize });
+
+  let cursorFacility = fi;
+  let lastSyncAt = meta[0]?.lastSyncAt ?? null;
+  if (slice.done) cursorFacility = fi + 1;
+  const allDone = cursorFacility >= FACILITIES.length;
+  if (allDone) lastSyncAt = new Date();
+
+  await db
+    .insert(schema.syncMeta)
+    .values({ id: 1, cursorFacility, lastSyncAt: lastSyncAt ?? undefined })
+    .onConflictDoUpdate({
+      target: schema.syncMeta.id,
+      set: { cursorFacility, lastSyncAt: lastSyncAt ?? undefined },
+    });
+
+  return {
+    facilityId,
+    processedThisBatch: slice.processed,
+    facilityOffset: slice.offset,
+    facilityTotal: slice.total,
+    cursorFacility,
+    allDone,
+    patientsInDb: await patientCount(),
+    lastSyncAt: lastSyncAt ? lastSyncAt.toISOString() : null,
+  };
 }
 
 /**

@@ -80,6 +80,7 @@ export const syncMeta = pgTable("sync_meta", {
   lastSyncAt: timestamp("last_sync_at", { withTimezone: false }),
   lastInserted: integer("last_inserted").default(0),
   lastUpdated: integer("last_updated").default(0),
+  cursorFacility: integer("cursor_facility").default(0), // 0..2 = which facility the chunked sync is on
 });
 
 // Biller manual override of a patient's decision (see manual_override_requirements.md).

@@ -98,27 +98,30 @@ export default function Dashboard() {
     })();
   }, [loadData, loadLastSync]);
 
-  // SYNC button: POST async, retry until the API responds, then refresh the UI.
+  // SYNC button: drive the chunked pipeline batch-by-batch until done. Each
+  // batch inserts new / updates changed patients; the table + charts grow live.
+  // On API failure it retries the same batch (server cursor is unchanged).
   const handleSync = useCallback(async () => {
     setSyncing(true);
-    setSyncMsg("Syncing with PointClickCare…");
-    const maxAttempts = 30;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    setSyncMsg("Starting sync…");
+    let first = true;
+    let guard = 0;
+    while (guard++ < 200) {
       try {
-        const res = await fetch("/api/sync", { method: "POST" });
+        const res = await fetch(`/api/sync${first ? "?reset=1" : ""}`, { method: "POST" });
         if (!res.ok) throw new Error(`sync ${res.status}`);
         const r = await res.json();
-        setLastSync(r.lastSyncAt);
-        setSyncMsg(`Synced: ${r.inserted} new, ${r.updated} updated (${(r.durationMs / 1000).toFixed(1)}s)`);
-        await loadData(); // recompute status -> refresh table/charts
-        break;
-      } catch (e) {
-        if (attempt === maxAttempts) {
-          setSyncMsg("Sync failed after retries — try again.");
+        first = false;
+        if (r.lastSyncAt) setLastSync(r.lastSyncAt);
+        await loadData(); // recompute status -> grow table/charts live
+        if (r.allDone) {
+          setSyncMsg(`Synced — ${r.patientsInDb} patients loaded`);
           break;
         }
-        setSyncMsg(`API unavailable, retrying (${attempt})…`);
-        await sleep(Math.min(2000 * attempt, 10000));
+        setSyncMsg(`Syncing facility ${r.facilityId}… ${r.patientsInDb} patients loaded`);
+      } catch {
+        setSyncMsg("PointClickCare unavailable — retrying…");
+        await sleep(3000); // retry until the API responds (resumable)
       }
     }
     setSyncing(false);

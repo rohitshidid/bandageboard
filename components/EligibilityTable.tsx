@@ -49,10 +49,16 @@ export default function EligibilityTable({
     );
   }
 
+  // Cap visible rows (~30) and scroll the rest inside the box; header stays pinned.
+  const ROW_PX = 41;
+  const MAX_ROWS = 25;
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div
+      className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm"
+      style={{ maxHeight: ROW_PX * (MAX_ROWS + 1) }}
+    >
       <table className="min-w-full divide-y divide-slate-200">
-        <thead className="bg-slate-50">
+        <thead className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgb(226_232_240)]">
           <tr>
             <Header label="Patient" k="patient" sort={sort} onSort={onSort} />
             <Header label="Facility" k="facility" sort={sort} onSort={onSort} />

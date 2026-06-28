@@ -32,6 +32,12 @@
 - `wiki.md` code layout reflects real files. ✅
 - `README.md` / `API.md`: source docs, unchanged.
 
+## SYNC pipeline FIXED (was: only 17 patients, button "not syncing")
+- Root cause: old `syncIncremental` did ONE giant request loading all 300 (×4 calls ×429 retries) — minutes long; browser fetch gave up, nothing committed, `sync_meta` stayed empty.
+- Fix: chunked + resumable + concurrent. `syncNextBatch(20)` advances a facility cursor (101→102→103) via `sync_cursor` + `sync_meta.cursor_facility`; `syncSlice` processes its batch with concurrency 5. UI loops POST `/api/sync` (`?reset=1` first) until `allDone`, refetching `/api/eligibility` each batch (table/charts grow live), retrying the same batch on failure.
+- VERIFIED: drove all **300 patients** in (101→120, 102→180, 103→300); dashboard shows 300 (82 ready / 63 review / 155 reject; 145 active MCB), "Last sync" timestamp displayed; POST advances batches, GET returns lastSyncAt.
+- Build gotcha: `npm run build` racing a RUNNING dev/start server (both write `.next`) → flaky `PageNotFoundError /_document`. Kill servers + `rm -rf .next` before building. Clean build is deploy-ready.
+
 ## Open Risks / Warnings
 - Healed/resolved detection (`engine.ts` `HEALED_RE`/`ACTIVE_RE`) is a deterministic regex pass over the single most-recently-dated note/assessment text, not an LLM check — phrasing outside the regex won't be caught (stays `flag`/`auto_accept` as before, never a silent miss toward `reject`, so safe direction but may under-catch). Revisit if Person 2's LLM path should also classify status.
 - LLM extraction (`lib/extract/llm.ts`) is wired but UNRUN live — no ANTHROPIC_API_KEY set. Default off (`EXTRACT_USE_LLM` unset) → deterministic path. To enable: set key + flag.
