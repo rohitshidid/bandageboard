@@ -60,22 +60,23 @@ export default function Dashboard() {
   }, []);
 
   // Biller manual override (manual_override_requirements.md): POST/DELETE the
-  // override, then refresh from the API so decision/system_decision/reason are
-  // recomputed server-side consistently (avoids drifting local state). The
-  // drawer is keyed by patient_id (see `selected` above), so it picks up the
-  // refreshed row automatically once `rows` updates.
+  // PER-WOUND override, then refresh from the API so decision/system_decision/
+  // reason are recomputed server-side consistently (avoids drifting local
+  // state). The drawer is keyed by patient_id (see `selected` above), so it
+  // picks up the refreshed row automatically once `rows` updates.
   const handleOverride = useCallback(
-    async (patientId: string, newDecision: Decision | null, note: string) => {
+    async (patientId: string, woundIndex: number, newDecision: Decision | null, note: string) => {
       if (newDecision) {
         await fetch("/api/eligibility/override", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ patient_id: patientId, decision: newDecision, note }),
+          body: JSON.stringify({ patient_id: patientId, wound_index: woundIndex, decision: newDecision, note }),
         });
       } else {
-        await fetch(`/api/eligibility/override?patient_id=${encodeURIComponent(patientId)}`, {
-          method: "DELETE",
-        });
+        await fetch(
+          `/api/eligibility/override?patient_id=${encodeURIComponent(patientId)}&wound_index=${woundIndex}`,
+          { method: "DELETE" }
+        );
       }
       await loadData();
     },

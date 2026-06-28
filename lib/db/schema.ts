@@ -10,6 +10,7 @@ import {
   timestamp,
   date,
   jsonb,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 // Internal-id patients. PK = internal integer id (-> notes/assessments).
@@ -82,11 +83,19 @@ export const syncMeta = pgTable("sync_meta", {
   lastUpdated: integer("last_updated").default(0),
 });
 
-// Biller manual override of a patient's decision (see manual_override_requirements.md).
-// Additive layer on top of the computed result — never mutated by ingestion/extraction.
-export const decisionOverrides = pgTable("decision_overrides", {
-  patientId: text("patient_id").primaryKey(), // PCC patient_id (string)
-  decision: text("decision").notNull(), // auto_accept | flag_for_review | reject
-  note: text("note"),
-  overriddenAt: timestamp("overridden_at", { withTimezone: false }).defaultNow(),
-});
+// Biller manual override of a SINGLE WOUND's decision (see manual_override_requirements.md).
+// woundIndex = position in the patient's `wounds[]` array (0 = primary). Each
+// wound is overridden independently — additive layer, never mutated by ingestion/extraction.
+export const decisionOverrides = pgTable(
+  "decision_overrides",
+  {
+    patientId: text("patient_id").notNull(), // PCC patient_id (string)
+    woundIndex: integer("wound_index").notNull(),
+    decision: text("decision").notNull(), // auto_accept | flag_for_review | reject
+    note: text("note"),
+    overriddenAt: timestamp("overridden_at", { withTimezone: false }).defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.patientId, t.woundIndex] }),
+  })
+);

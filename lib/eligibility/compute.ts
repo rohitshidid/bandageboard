@@ -180,8 +180,24 @@ export async function computeEligibility(
       }
     }
 
-    // Per-wound claim status.
-    const wounds = allWounds.map((w) => decideWound(patient, coverage, diagnoses, w));
+    // Per-wound claim status, then apply any per-wound biller override (see
+    // manual_override_requirements.md): override.decision/note become that
+    // wound's EFFECTIVE decision/reason; the system's own are preserved in
+    // system_decision/system_reason, never overwritten.
+    const patientOverrides = overrides.get(patient.patient_id);
+    const wounds = allWounds.map((w, i) => {
+      const claim = decideWound(patient, coverage, diagnoses, w);
+      const override = patientOverrides?.get(i);
+      if (!override) return claim;
+      return {
+        ...claim,
+        system_decision: claim.decision,
+        system_reason: claim.reason,
+        override,
+        decision: override.decision,
+        reason: override.note ?? `Overridden by biller to ${override.decision}.`,
+      };
+    });
     const multiple_wounds = allWounds.length > 1;
 
     // Conflict between the best note and best assessment wound -> primary flags.
@@ -200,16 +216,15 @@ export async function computeEligibility(
       wound: primary, wounds, multiple_wounds,
     });
 
-    // Biller manual override (see manual_override_requirements.md): the override
-    // decision/note become the EFFECTIVE decision/reason; the system's own
-    // decision/reason are preserved alongside, never overwritten.
-    const override = overrides.get(patient.patient_id);
-    if (override) {
-      result.system_decision = result.decision;
-      result.system_reason = result.reason;
-      result.override = override;
-      result.decision = override.decision;
-      result.reason = override.note ?? `Overridden by biller to ${override.decision}.`;
+    // Patient-level decision/reason/override mirror the PRIMARY wound (wounds[0]),
+    // post-override, so the table/summary always reflects what's actually billable.
+    const primaryClaim = wounds[0];
+    if (primaryClaim) {
+      result.decision = primaryClaim.decision;
+      result.reason = primaryClaim.reason;
+      result.override = primaryClaim.override;
+      result.system_decision = primaryClaim.system_decision;
+      result.system_reason = primaryClaim.system_reason;
     }
 
     if (filters.decision && result.decision !== filters.decision) continue;

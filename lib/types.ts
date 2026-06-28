@@ -72,20 +72,26 @@ export interface ExtractedWound {
   evidence?: string | null; // substring the fields came from
 }
 
-// One wound + its own claim status (a patient can have several).
-export interface WoundClaim {
-  wound: ExtractedWound;
-  decision: Decision;
-  reason: string;
-}
-
-// Biller manual override (see manual_override_requirements.md). Additive only —
-// never replaces the system's own decision/reason, which stay in
-// system_decision/system_reason when an override is present.
+// Biller manual override of a single wound claim (see manual_override_requirements.md).
+// Additive only — never replaces the system's own decision/reason on the claim,
+// which stay in system_decision/system_reason when an override is present.
 export interface DecisionOverride {
   decision: Decision;
   note: string | null;
   overridden_at: string;
+}
+
+// One wound + its own claim status (a patient can have several). Each wound has
+// its OWN override — there is no separate patient-level override control.
+export interface WoundClaim {
+  wound: ExtractedWound;
+  decision: Decision; // EFFECTIVE: override.decision if present, else the system decision
+  reason: string; // EFFECTIVE: override.note if present, else the system reason
+  /** Present only when a biller has manually overridden this wound's decision. */
+  override?: DecisionOverride;
+  /** Present only alongside `override` — what the rules engine originally decided for this wound. */
+  system_decision?: Decision;
+  system_reason?: string;
 }
 
 export interface EligibilityResult {
@@ -94,13 +100,12 @@ export interface EligibilityResult {
   facility_id: number;
   has_active_mcb: boolean;
   wound: ExtractedWound | null; // primary (largest)
-  wounds: WoundClaim[]; // all wounds, each with its own claim status
+  wounds: WoundClaim[]; // all wounds, each with its own claim status (and own override)
   multiple_wounds: boolean;
-  decision: Decision; // EFFECTIVE decision: override.decision if present, else the system decision
-  reason: string; // EFFECTIVE reason: override.note if present, else the system reason
-  /** Present only when a biller has manually overridden the system decision. */
+  decision: Decision; // mirrors the PRIMARY wound's effective decision (wounds[0])
+  reason: string; // mirrors the PRIMARY wound's effective reason
+  /** Mirrors wounds[0].override, for table-level "overridden" badges. */
   override?: DecisionOverride;
-  /** Present only alongside `override` — what the rules engine originally decided. */
   system_decision?: Decision;
   system_reason?: string;
 }
