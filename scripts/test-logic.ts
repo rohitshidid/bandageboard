@@ -5,7 +5,7 @@
 
 import assert from "node:assert";
 import { classify, parseRetryAfter, backoffMs } from "../lib/ingest/client";
-import { extractWound } from "../lib/extract";
+import { extractWound, deidentify, reidentify } from "../lib/extract";
 import { decide, isActiveMcb } from "../lib/eligibility/engine";
 import type {
   Assessment,
@@ -136,6 +136,41 @@ test("FLAG: note vs assessment conflict", () => {
 test("FLAG: low confidence", () => {
   const r = decide({ patient, coverage: mcb, diagnoses: [], wound: { ...fullWound, confidence: 0.5 }, hadClinicalSource: true });
   assert.equal(r.decision, "flag_for_review");
+});
+
+console.log("\n— de-identification (PHI core) —");
+test("strips name / id / DOB / clinician / dates", () => {
+  const txt = "Agnes Dunbar (FA-001), DOB 1942-05-04, seen by RN Smith on 2026-05-10. Sacral pressure ulcer.";
+  const { text, map } = deidentify(txt, { first_name: "Agnes", last_name: "Dunbar", patient_id: "FA-001", birth_date: "1942-05-04" });
+  assert.ok(!/Agnes|Dunbar|FA-001|1942-05-04|RN Smith/.test(text), `leaked PHI: ${text}`);
+  assert.ok(/pressure ulcer/i.test(text), "clinical content must survive");
+  assert.ok(Object.keys(map).length >= 4);
+});
+test("reidentify restores exactly (round-trip)", () => {
+  const txt = "Agnes Dunbar FA-001 sacral ulcer";
+  const { text, map } = deidentify(txt, { first_name: "Agnes", last_name: "Dunbar", patient_id: "FA-001" });
+  assert.equal(reidentify(text, map), txt);
+});
+
+console.log("\n— multi-wound primary + evidence —");
+test("picks the larger wound as primary", () => {
+  const n: Note = {
+    id: 9, patient_id: 2, note_type: "HP Skin & Wound Note", effective_date: null,
+    note_text: "Pressure Ulcer Left buttock measures 5.9 x 4.5cm, depth 1.8cm. Heel wound also eval - L heel 3.5x2.7, 0.9cm deep.",
+  };
+  const w = extractWound({ kind: "note", data: n });
+  assert.ok(w);
+  assert.equal(w!.length_cm, 5.9); // buttock (26.6cm²) beats heel (9.45cm²)
+  assert.equal(w!.depth_cm, 1.8);
+  assert.match(w!.evidence ?? "", /multi-wound/);
+});
+test("evidence snippet present on single wound", () => {
+  const n: Note = {
+    id: 10, patient_id: 1, note_type: "Wound (SPN)", effective_date: null,
+    note_text: "Location: Sacrum\nWound Type: Pressure Ulcer, Stage 2\nLength: 3.2 cm Width: 2.1 cm Depth: 0.4 cm\nDrainage: Moderate",
+  };
+  const w = extractWound({ kind: "note", data: n });
+  assert.ok(w?.evidence && w.evidence.length > 0);
 });
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

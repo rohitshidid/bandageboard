@@ -10,6 +10,13 @@
 ## Stylistic Choices
 - Plans should END with: (1) a copy-paste **code-sync prompt** to merge the branches, and (2) explicit **deploy + run steps** (local + production).
 
+## LLM / Anthropic Decisions (Person 2)
+- Use the **official `@anthropic-ai/sdk`** with structured outputs (`messages.parse` + `zodOutputFormat`), NOT the Vercel AI SDK that ARCHITECTURE.md first named. (Per claude-api skill: official SDK is the default for Anthropic code.)
+- Default extraction model: **`claude-opus-4-8`** (override via `EXTRACT_MODEL`). Don't downgrade to Haiku unless the user asks.
+- **De-identify BEFORE any LLM call** — `deidentify()` strips PHI, model sees `[PLACEHOLDER]` tokens only. Hard rule.
+- Lazy-load the Anthropic SDK (dynamic `import()` inside the call) so the deterministic path + pure tests don't depend on it at module load.
+- LLM is **opt-in** (`EXTRACT_USE_LLM=true`) and degrades to deterministic when no key — never block the pipeline on the model.
+
 ## Past Corrections
 | # | Date | Correction | Applies To |
 |---|------|-----------|------------|

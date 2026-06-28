@@ -50,7 +50,7 @@
 ---
 
 ## Current Task
-Person 1 (backend) complete. Next: Person 2 swaps the extraction stub; Person 3 builds the dashboard; then integrate per CODE-SYNC PROMPT.
+Person 1 (backend) + Person 2 (extraction) complete & verified. Next: Person 3 builds the dashboard; then integrate per CODE-SYNC PROMPT. To use LLM extraction: set `ANTHROPIC_API_KEY` + `EXTRACT_USE_LLM=true`.
 
 ---
 
@@ -73,17 +73,18 @@ Owns the DB schema (the contract), ingestion, the routing engine, and the API bo
 **Provides:** populated DB + `/api/eligibility` serving `{ summary, results }`.
 **Seam for Person 2:** swap the stub `extractWound()` — signature `extractWound(source) → ExtractedWound | null` is fixed.
 
-### Person 2 — Extraction & De-identification (PHI core)  `/lib/extract`
+### Person 2 — Extraction & De-identification (PHI core)  `/lib/extract`  ✅ DONE
 The hardest accuracy work. Pure functions over note/assessment JSON — no DB needed early.
 **Micro-tasks:**
-- [ ] De-id module (reused by Person 1 for LLM summaries): tokenize identifiers → restore. Strip name/DOB/IDs from text.
-- [ ] Assessment `raw_json` parser — cleanest source, prefer when present.
-- [ ] Structured note parser (regex) for SPN / SOAP / prose shorthand (`Meas 4.2x3.1x1.5cm`).
-- [ ] LLM extractor (Vercel AI SDK) for Envive narratives — runs on de-identified text ONLY.
-- [ ] Multi-wound → pick primary (`is_primary`). Emit `confidence` (drives routing) + `source`.
-- [ ] Evidence snippet: return the substring each field came from.
-**Provides:** `extractWound(note | assessment) → ExtractedWound`.
-**Independent because:** works against fixture JSON (sample notes/assessments from API.md) with zero DB dependency.
+- [x] De-id module (`lib/extract/deid.ts`): tokenize name/DOB/IDs/clinician/dates → restore. Round-trip tested. Reusable by Person 1.
+- [x] Assessment `raw_json` parser (`lib/extract/parse.ts`): nested `sections`, "Wound narrative", flat shape.
+- [x] Structured note parser (regex): SPN labels + prose (`Measures A x B cm`, `5.9x4.5cm, depth 1.8cm`).
+- [x] LLM extractor (`lib/extract/llm.ts`): **official Anthropic SDK** structured output (`messages.parse` + zod), model `claude-opus-4-8`. Runs on de-identified text ONLY. Lazy-loaded; graceful no-key fallback.
+- [x] Multi-wound → pick primary by largest area (`is_primary`); emit `confidence` + `source`.
+- [x] Evidence snippet: returns the substring each field came from.
+- [x] Tests: de-id + multi-wound + evidence in `test:logic` (19/19); `test:llm` (gated on key).
+**Provides:** `extractWound(source)` (sync), `extractWoundAsync(source)` (LLM fallback), `deidentify`/`reidentify`.
+**Integration:** replaced Person 1's stub. LLM opt-in via `EXTRACT_USE_LLM=true` (default off keeps API hot path deterministic/free).
 
 ### Person 3 — Biller Dashboard & Deploy  `/app`, `/components`, `vercel.json`
 The presentation layer (heavily judged) + ships the deploy.
@@ -198,5 +199,6 @@ npx vercel --prod
 - [x] IHMS state files initialized (`plan.md`, `selfcorrection.md`, `system_health.md`, `wiki.md`).
 - [x] Read all project docs; re-planned 4-person ARCHITECTURE split into 3 independent workstreams.
 - [x] ARCHITECTURE.md reconciled to the 3-person plan (plan.md = source of truth).
-- [x] **Person 1 implemented + VERIFIED** on real Neon DB + live API: 15/15 logic tests, live 429-retry, db:push, ingest, `npm run verify` (4 auto/6 flag/7 reject, PHI-safe), `GET /api/eligibility` HTTP 200 with exact contract. Fixed real-data gotchas (MCB via `payer_code`; nested assessment shapes; `.env` precedence). (Awaiting Person 2/3 + integration.)
+- [x] **Person 1 implemented + VERIFIED** on real Neon DB + live API: 15/15 logic tests, live 429-retry, db:push, ingest, `npm run verify` (4 auto/6 flag/7 reject, PHI-safe), `GET /api/eligibility` HTTP 200 with exact contract. Fixed real-data gotchas (MCB via `payer_code`; nested assessment shapes; `.env` precedence).
+- [x] **Person 2 implemented + VERIFIED**: de-id module, multi-wound parser, evidence, Anthropic LLM extractor (de-identified text only). 19/19 logic tests; async LLM path falls back cleanly (verified against DB). (Awaiting Person 3 + integration.)
 - [ ] **Before demo:** full 300-patient backfill — `npm run ingest` (only 17 ingested so far; resumable, ~85s/10 patients due to 429s).

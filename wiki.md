@@ -36,13 +36,17 @@ Built by **3 developers** against a shared contract (`/lib/types.ts`) + mocks.
 | `lib/ingest/sync.ts` ✅ | Person 1 | id↔patient_id resolution, chunked idempotent upserts, resumable `syncSlice` |
 | `lib/eligibility/engine.ts` ✅ | Person 1 | Deterministic routing + reason + danger rules (pure, testable) |
 | `lib/eligibility/compute.ts` ✅ | Person 1 | DB rows → `EligibilityResult[]`; conflict detect; PHI masking enforced here |
-| `lib/extract/index.ts` ✅ STUB | Person 2 | `extractWound(source)` — assessment JSON + SPN regex; Envive→null. **P2 replaces.** |
+| `lib/extract/index.ts` ✅ | Person 2 | Public surface: `extractWound` (sync), `extractWoundAsync` (LLM fallback), `deidentify`/`reidentify` |
+| `lib/extract/deid.ts` ✅ | Person 2 | PHI de-identification: tokenize name/DOB/id/clinician/dates ↔ restore (round-trip) |
+| `lib/extract/parse.ts` ✅ | Person 2 | Deterministic parser: structured/narrative/SPN/prose, multi-wound primary (largest area), evidence |
+| `lib/extract/llm.ts` ✅ | Person 2 | Anthropic structured-output extractor for Envive; de-identified text only; lazy-loaded; graceful no-key fallback |
 | `app/api/eligibility/route.ts` ✅ | Person 1 | `GET` → `{ summary, results }`, filters facility/decision/payer |
 | `app/api/sync/route.ts` ✅ | Person 1 | `GET`/`POST` one ingestion slice (cron + manual), optional `SYNC_SECRET` |
 | `app/page.tsx`, `app/layout.tsx` ✅ placeholder | Person 3 | Dashboard shell — **P3 replaces** with table/cards/drawer |
 | `scripts/ingest.ts` ✅ | Person 1 | CLI backfill (`npm run ingest`) |
 | `scripts/test-logic.ts` ✅ | Person 1 | Pure routing + retry + extraction tests (no DB/net), 15 cases |
 | `scripts/test-api.ts` ✅ | Person 1 | Live PCC retry smoke test (network, no DB) |
+| `scripts/test-llm.ts` ✅ | Person 2 | LLM extraction + de-id smoke test (`npm run test:llm`, gated on ANTHROPIC_API_KEY) |
 | `scripts/verify.ts` ✅ | Person 1 | DB→decisions end-to-end check + PHI leak guard (`npm run verify`) |
 | `scripts/inspect.ts` ✅ | Person 1 | Debug: dump raw stored coverage/assessment/note values |
 | `.env` ✅ | local only (gitignored) | Secrets: `DATABASE_URL` (Neon), `PCC_BASE_URL`. NOT `.env.local`. |

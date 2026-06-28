@@ -4,10 +4,12 @@
 
 ## Last Sync
 - Timestamp: 2026-06-28
-- Triggering task: Implement + VERIFY Person 1 backend end-to-end on real Neon DB + live API.
+- Triggering task: Implement + VERIFY Person 2 (extraction: de-id, multi-wound parser, Anthropic LLM, evidence).
 
-## Structural Integrity — Person 1 VERIFIED GREEN ✅
-- `npm run test:logic` → 15/15 pass (retry helpers + extraction + all routing branches).
+## Structural Integrity — Person 1 + Person 2 VERIFIED GREEN ✅
+- `npm run test:logic` → 19/19 pass (retry + routing + de-id round-trip + multi-wound primary + evidence).
+- `npm run test:llm` → SKIPs cleanly without ANTHROPIC_API_KEY; runs de-id + Anthropic structured extraction when set.
+- `EXTRACT_USE_LLM=true npm run verify` → async LLM path works; falls back to deterministic with no key (4/6/7, PHI-safe).
 - `npm run test:api` → PASS (live PCC, survived 30% 429s; ID mapping correct).
 - `npm run db:push` → tables created on Neon. ✅
 - `npm run ingest -- --facility 101 --limit 10 --once` → 10 patients ingested (resumable slice). ✅
@@ -23,7 +25,8 @@
 - `README.md` / `API.md`: source docs, unchanged.
 
 ## Open Risks / Warnings
-- `lib/extract/index.ts` is a FUNCTIONAL STUB. Now parses real nested `sections`, narratives, labeled notes. Person 2 still owns de-id + LLM (Envive) + multi-wound + confidence tuning.
+- LLM extraction (`lib/extract/llm.ts`) is wired but UNRUN live — no ANTHROPIC_API_KEY set. Default off (`EXTRACT_USE_LLM` unset) → deterministic path. To enable: set key + flag.
+- Per-request LLM (EXTRACT_USE_LLM=true on `/api/eligibility`) would call the model per patient per request — fine for demo at 17 patients, but a batch/persisted enrichment is the right pattern at 300+. Noted for later.
 - Only 17 patients ingested (smoke). Run full backfill before demo (see plan.md Deploy & Run).
 - Eligibility computed on-the-fly in `compute.ts` (no persisted `eligibility` table) — fine for 300.
 - Design call: confirmed non-MCB → `reject`; missing coverage entirely → `flag` (missing≠negative).
@@ -43,3 +46,4 @@
 | 2026-06-28 | 3-person plan + sync prompt + deploy steps | plan.md, selfcorrection.md, system_health.md, wiki.md | updated |
 | 2026-06-28 | Reconcile ARCHITECTURE.md → 3-person | ARCHITECTURE.md, wiki.md, system_health.md | updated |
 | 2026-06-28 | Implement Person 1 backend | 20 new files (lib/*, app/api/*, scripts/*, config) | created |
+| 2026-06-28 | Implement Person 2 extraction | lib/extract/{deid,parse,llm,index}.ts, scripts/test-llm.ts; +@anthropic-ai/sdk,zod | created |

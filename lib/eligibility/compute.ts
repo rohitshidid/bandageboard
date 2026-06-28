@@ -3,7 +3,7 @@
 // un-masked — only EligibilityResult fields are returned.
 
 import { db, schema } from "../db/client";
-import { extractWound } from "../extract";
+import { extractWound, extractWoundAsync, type Source } from "../extract";
 import { buildResult } from "./engine";
 import type {
   Assessment,
@@ -117,12 +117,18 @@ export async function computeEligibility(
     }));
 
     // Prefer assessment (cleanest). Also extract a note to detect conflicts.
-    const fromAsmt = patientAsmts
-      .map((a) => extractWound({ kind: "assessment", data: a }))
-      .find((w) => w != null) ?? null;
-    const fromNote = patientNotes
-      .map((n) => extractWound({ kind: "note", data: n }))
-      .find((w) => w != null) ?? null;
+    // EXTRACT_USE_LLM=true routes hard narratives through the LLM (de-identified);
+    // default off keeps the per-request path deterministic, fast, and free.
+    const useLLM = process.env.EXTRACT_USE_LLM === "true";
+    const pick = async (sources: Source[]) => {
+      for (const s of sources) {
+        const w = useLLM ? await extractWoundAsync(s) : extractWound(s);
+        if (w) return w;
+      }
+      return null;
+    };
+    const fromAsmt = await pick(patientAsmts.map((a) => ({ kind: "assessment", data: a })));
+    const fromNote = await pick(patientNotes.map((n) => ({ kind: "note", data: n })));
 
     const wound = fromAsmt ?? fromNote;
     const conflict = woundsDisagree(fromAsmt, fromNote);
