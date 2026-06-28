@@ -42,7 +42,13 @@ Built by **3 developers** against a shared contract (`/lib/types.ts`) + mocks.
 | `lib/extract/llm.ts` ✅ | Person 2 | Anthropic structured-output extractor for Envive; de-identified text only; lazy-loaded; graceful no-key fallback |
 | `app/api/eligibility/route.ts` ✅ | Person 1 | `GET` → `{ summary, results }`, filters facility/decision/payer |
 | `app/api/sync/route.ts` ✅ | Person 1 | `GET`/`POST` one ingestion slice (cron + manual), optional `SYNC_SECRET` |
-| `app/page.tsx`, `app/layout.tsx` ✅ placeholder | Person 3 | Dashboard shell — **P3 replaces** with table/cards/drawer |
+| `app/page.tsx`, `app/layout.tsx` ✅ | Person 3 | Renders `<Dashboard/>`; layout imports Tailwind `globals.css` |
+| `components/Dashboard.tsx` ✅ | Person 3 | Client orchestrator: fetch `/api/eligibility` (mock fallback), filters, sort, state |
+| `components/SummaryCards.tsx` ✅ | Person 3 | Counts per decision + % ready to bill |
+| `components/EligibilityTable.tsx` ✅ | Person 3 | Color-coded sortable table; row→drawer |
+| `components/DetailDrawer.tsx` ✅ | Person 3 | Wound fields, reason, evidence, confidence, masked id |
+| `components/decision.ts` ✅ | Person 3 | Shared decision colors/labels + dims helper |
+| `tailwind.config.ts`, `postcss.config.mjs`, `app/globals.css` ✅ | Person 3 | Tailwind setup |
 | `scripts/ingest.ts` ✅ | Person 1 | CLI backfill (`npm run ingest`) |
 | `scripts/test-logic.ts` ✅ | Person 1 | Pure routing + retry + extraction tests (no DB/net), 15 cases |
 | `scripts/test-api.ts` ✅ | Person 1 | Live PCC retry smoke test (network, no DB) |

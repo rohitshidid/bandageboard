@@ -2,17 +2,15 @@
 // HARD PHI RULE: the model only ever sees DE-IDENTIFIED text. Identifiers are
 // tokenized out here before the request and never sent.
 //
-// Uses the official Anthropic SDK with structured outputs (messages.parse + a
-// zod schema). Model defaults to claude-opus-4-8; override with EXTRACT_MODEL.
+// Uses the official Anthropic SDK (loaded lazily) with a JSON-only prompt and
+// local zod validation — portable across SDK versions and swappable to another
+// provider. Model defaults to claude-opus-4-8; override with EXTRACT_MODEL.
 // Degrades gracefully: no ANTHROPIC_API_KEY, or any error -> returns null, so
 // the pipeline still runs (those patients flag_for_review).
 
 import { z } from "zod";
 import { deidentify } from "./deid";
 import type { Assessment, ExtractedWound, Note } from "../types";
-
-// Anthropic SDK is loaded lazily inside the call so the deterministic path
-// (and pure unit tests) never depend on it at module-eval time.
 
 type Source =
   | { kind: "assessment"; data: Assessment }
@@ -34,16 +32,19 @@ const SYSTEM = `You extract structured wound data from a single de-identified cl
 The text has had names, dates, and IDs replaced with [PLACEHOLDER] tokens — ignore those.
 Return only what is explicitly stated. Do not guess or infer missing measurements.
 If the note describes multiple wounds, return the PRIMARY (largest / most severe) one.
-Set found=false if there is no wound described.
 Normalize wound_type to one of: pressure_ulcer, diabetic_foot_ulcer, venous_stasis_ulcer,
 arterial_ulcer, surgical_site_infection, abscess, burn. Measurements in cm.
-evidence = the short phrase the measurements came from.`;
+
+Respond with ONLY a JSON object (no prose, no code fences) matching exactly:
+{"found":boolean,"wound_type":string|null,"stage":string|null,"location":string|null,
+"length_cm":number|null,"width_cm":number|null,"depth_cm":number|null,
+"drainage_amount":"none"|"light"|"moderate"|"heavy"|null,"evidence":string|null}
+Set found=false if no wound is described. evidence = the short phrase measurements came from.`;
 
 function sourceText(source: Source): { patientId: number; text: string } {
   if (source.kind === "note") {
     return { patientId: source.data.patient_id, text: source.data.note_text ?? "" };
   }
-  // Assessment narrative path.
   let text = "";
   try {
     const j = JSON.parse(source.data.raw_json ?? "{}");
@@ -67,17 +68,26 @@ export async function extractWoundLLM(source: Source): Promise<ExtractedWound | 
 
   try {
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const { zodOutputFormat } = await import("@anthropic-ai/sdk/helpers/zod");
     const client = new Anthropic();
-    const resp = await client.messages.parse({
+    const resp = await client.messages.create({
       model: process.env.EXTRACT_MODEL ?? "claude-opus-4-8",
       max_tokens: 1024,
       system: SYSTEM,
       messages: [{ role: "user", content: clean }],
-      output_config: { format: zodOutputFormat(WoundSchema) },
     });
-    const o = resp.parsed_output;
-    if (!o || !o.found) return null;
+
+    let raw = "";
+    for (const b of resp.content as any[]) {
+      if (b.type === "text") {
+        raw = b.text;
+        break;
+      }
+    }
+    const jsonStr = raw.replace(/```json|```/g, "").trim();
+    const parsed = WoundSchema.safeParse(JSON.parse(jsonStr));
+    if (!parsed.success || !parsed.data.found) return null;
+
+    const o = parsed.data;
     return {
       patient_id: patientId,
       wound_type: o.wound_type,

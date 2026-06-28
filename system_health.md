@@ -4,12 +4,14 @@
 
 ## Last Sync
 - Timestamp: 2026-06-28
-- Triggering task: Implement + VERIFY Person 2 (extraction: de-id, multi-wound parser, Anthropic LLM, evidence).
+- Triggering task: Implement + VERIFY Person 3 (biller dashboard) — all 3 workstreams now done.
 
-## Structural Integrity — Person 1 + Person 2 VERIFIED GREEN ✅
-- `npm run test:logic` → 19/19 pass (retry + routing + de-id round-trip + multi-wound primary + evidence).
-- `npm run test:llm` → SKIPs cleanly without ANTHROPIC_API_KEY; runs de-id + Anthropic structured extraction when set.
-- `EXTRACT_USE_LLM=true npm run verify` → async LLM path works; falls back to deterministic with no key (4/6/7, PHI-safe).
+## Structural Integrity — ALL 3 WORKSTREAMS VERIFIED GREEN ✅
+- `npm run test:logic` → 19/19 pass (retry + routing + de-id + multi-wound + evidence).
+- `npm run test:llm` → SKIPs cleanly without ANTHROPIC_API_KEY.
+- `EXTRACT_USE_LLM=true npm run verify` → async LLM path works; falls back to deterministic (4/6/7, PHI-safe).
+- `npm run build` → compiles + typechecks clean. Routes: / (dynamic), /api/eligibility, /api/sync.
+- Dashboard rendered live (screenshot): "Live data" badge, cards 17/4/6/7, color-coded table, detail drawer with evidence + 90% confidence + PHI-masked name.
 - `npm run test:api` → PASS (live PCC, survived 30% 429s; ID mapping correct).
 - `npm run db:push` → tables created on Neon. ✅
 - `npm run ingest -- --facility 101 --limit 10 --once` → 10 patients ingested (resumable slice). ✅
@@ -47,3 +49,4 @@
 | 2026-06-28 | Reconcile ARCHITECTURE.md → 3-person | ARCHITECTURE.md, wiki.md, system_health.md | updated |
 | 2026-06-28 | Implement Person 1 backend | 20 new files (lib/*, app/api/*, scripts/*, config) | created |
 | 2026-06-28 | Implement Person 2 extraction | lib/extract/{deid,parse,llm,index}.ts, scripts/test-llm.ts; +@anthropic-ai/sdk,zod | created |
+| 2026-06-28 | Implement Person 3 dashboard | app/{page,layout,globals.css}, components/*, tailwind/postcss config; +tailwind | created |

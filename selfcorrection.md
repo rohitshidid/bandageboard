@@ -16,6 +16,8 @@
 - **De-identify BEFORE any LLM call** — `deidentify()` strips PHI, model sees `[PLACEHOLDER]` tokens only. Hard rule.
 - Lazy-load the Anthropic SDK (dynamic `import()` inside the call) so the deterministic path + pure tests don't depend on it at module load.
 - LLM is **opt-in** (`EXTRACT_USE_LLM=true`) and degrades to deterministic when no key — never block the pipeline on the model.
+- `@anthropic-ai/sdk/helpers/zod` (`zodOutputFormat`) does NOT exist in `@anthropic-ai/sdk@0.68` — `next build` (webpack) fails to resolve even a dynamic import of it. Use a plain JSON-only prompt + local `zod.safeParse` instead (also more portable). `tsx` won't catch this if the import path is only hit at runtime behind a guard — `npm run build` will.
+- When reading Anthropic response content, `resp.content` is a union — narrow with a loop/`"text" in b`, not `.find(...).text` (ThinkingBlock has no `.text`; tsc 400s in build).
 
 ## Past Corrections
 | # | Date | Correction | Applies To |
